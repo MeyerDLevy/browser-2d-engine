@@ -3,6 +3,7 @@ import { applyMove } from '../shared/sim.ts'
 import { emptyInput, type ServerMsg } from '../shared/protocol.ts'
 import type { Entity, GameState } from '../shared/entities.ts'
 import { render, resize, type Cam, type DrawEnt } from './render.ts'
+import { visibleTiles } from './vision.ts'
 
 const canvas = document.getElementById('c') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')
@@ -202,7 +203,8 @@ function frame(now: number) {
     lastDraw.set(e.id, { x, y })
     draw.push({ e, x, y, moving })
   }
-  render(ctx, world, cam, draw, meId, now)
+  const vis = me ? visibleTiles(world, me.x, me.y) : null
+  render(ctx, world, cam, draw, meId, now, vis, me ? me.x : cam.x, me ? me.y : cam.y)
 
   if (me) {
     const inv = (me.inventory || []).map((it, i) => (i + 1) + '. ' + it.name).join('<br>')

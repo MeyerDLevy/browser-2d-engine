@@ -11,10 +11,14 @@ export const DIRT = 1
 export const ROAD = 2
 export const WATER = 3
 export const WALL = 4
+export const DOOR = 5
+export const WINDOW = 6
 
-export const TILE_COLOR = ['#3d7a3d', '#8b6914', '#5a5a5a', '#3a6ea5', '#6b5344']
-export const TILE_SIDE = ['#2d5a2d', '#6b5010', '#3e3e3e', '#2a5280', '#4a3a30']
-export const SOLID = { [WATER]: true, [WALL]: true }
+export const TILE_COLOR = ['#3d7a3d', '#8b6914', '#5a5a5a', '#3a6ea5', '#6b5344', '#5c3a22', '#8ab4c8']
+export const TILE_SIDE = ['#2d5a2d', '#6b5010', '#3e3e3e', '#2a5280', '#4a3a30', '#3a2414', '#4a6a78']
+export const SOLID = { [WATER]: true, [WALL]: true, [WINDOW]: true }
+export const OPAQUE = { [WALL]: true }
+export const TALL = { [WALL]: true, [WINDOW]: true }
 
 export type World = {
   seed: number
@@ -39,8 +43,18 @@ export function genTile(x: number, y: number, seed: number, mapSize: number) {
   const by = y % block
   if (bx === 0 || by === 0) return ROAD
   if (bx >= 5 && bx <= 15 && by >= 5 && by <= 15) {
-    if (by === 15 && bx === 10) return DIRT
-    if (bx === 5 || bx === 15 || by === 5 || by === 15) return WALL
+    const onWall = bx === 5 || bx === 15 || by === 5 || by === 15
+    if (onWall) {
+      if (by === 15 && bx === 10) return DOOR
+      const corner = (bx === 5 || bx === 15) && (by === 5 || by === 15)
+      if (!corner) {
+        if (by === 5 && (bx === 8 || bx === 12)) return WINDOW
+        if (by === 15 && (bx === 7 || bx === 13)) return WINDOW
+        if (bx === 5 && (by === 8 || by === 12)) return WINDOW
+        if (bx === 15 && (by === 8 || by === 12)) return WINDOW
+      }
+      return WALL
+    }
     return DIRT
   }
   const pond = hash(Math.floor(x / 8), Math.floor(y / 8), seed)
@@ -68,6 +82,10 @@ export function chunkKey(x: number, y: number) {
 
 export function isSolid(w: World, x: number, y: number) {
   return !!SOLID[getTile(w, x, y)]
+}
+
+export function isOpaque(w: World, x: number, y: number) {
+  return !!OPAQUE[getTile(w, x, y)]
 }
 
 export function iso(tx: number, ty: number) {
