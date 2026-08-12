@@ -1,14 +1,16 @@
 import {
-  TILE_COLOR, TILE_H, TILE_SIDE, TILE_W, WALL, getTile, iso, screenToTile, type World,
+  TALL, TILE_COLOR, TILE_H, TILE_SIDE, TILE_W, getTile, iso, screenToTile, type World,
 } from '../shared/world.ts'
 import { ITEM_COLOR, type Entity } from '../shared/entities.ts'
 
 export type Cam = { x: number; y: number; zoom: number }
 
 const FRAME = 128
-const SCALE = 0.55
+const SCALE = 0.85
 const FEET_X = 64
 const FEET_Y = 96
+const WALL_H = 44
+const CUT_H = 4
 const ANIMS = {
   stance: { col: 0, frames: 4, ms: 800, loop: 'pong' as const },
   run: { col: 4, frames: 8, ms: 533, loop: 'loop' as const },
@@ -110,12 +112,34 @@ function prism(ctx: CanvasRenderingContext2D, tx: number, ty: number, h: number,
   ctx.stroke()
 }
 
-function drawTile(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: number) {
+function drawTile(
+  ctx: CanvasRenderingContext2D,
+  w: World,
+  tx: number,
+  ty: number,
+  vis: Set<string>,
+  px: number,
+  py: number,
+) {
+  const seen = !vis || vis.has(tx + ',' + ty)
+  if (!seen) {
+    const p = iso(tx, ty)
+    diamond(ctx, p.x, p.y)
+    ctx.fillStyle = '#0a0a0a'
+    ctx.fill()
+    return
+  }
   const t = getTile(w, tx, ty)
   const top = TILE_COLOR[t]
   const side = TILE_SIDE[t]
-  if (t === WALL) {
-    prism(ctx, tx, ty, 18, top, side)
+  if (TALL[t]) {
+    const dx = tx - px
+    const dy = ty - py
+    const cut = tx + ty > px + py && dx * dx + dy * dy < 36
+    const h = cut ? CUT_H : WALL_H
+    if (cut) ctx.globalAlpha = 0.35
+    prism(ctx, tx, ty, h, top, side)
+    ctx.globalAlpha = 1
     return
   }
   const p = iso(tx, ty)
@@ -185,6 +209,9 @@ export function render(
   ents: DrawEnt[],
   meId: string,
   now = performance.now(),
+  vis: Set<string> = null,
+  px = 0,
+  py = 0,
 ) {
   const { canvas } = ctx
   ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -216,14 +243,19 @@ export function render(
   minY = Math.floor(minY) - 1
   maxY = Math.ceil(maxY) + 2
 
+  const ix = Math.floor(px)
+  const iy = Math.floor(py)
   for (let sum = minX + minY; sum <= maxX + maxY; sum++) {
     for (let tx = minX; tx <= maxX; tx++) {
       const ty = sum - tx
       if (ty < minY || ty > maxY) continue
-      drawTile(ctx, world, tx, ty)
+      drawTile(ctx, world, tx, ty, vis, ix, iy)
     }
   }
 
   ents.sort((a, b) => a.x + a.y - (b.x + b.y))
-  for (const d of ents) drawEntity(ctx, d, meId, now)
+  for (const d of ents) {
+    if (vis && d.e.id !== meId && !vis.has(Math.floor(d.x) + ',' + Math.floor(d.y))) continue
+    drawEntity(ctx, d, meId, now)
+  }
 }
