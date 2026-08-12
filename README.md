@@ -23,6 +23,8 @@ Map size is `MAP_SIZE` in `shared/world.ts`.
 
 `npm start` is the production entry (Railway uses it; listens on `PORT`). One Node process serves the page, assets, and WebSockets.
 
+Live: https://browser-2d-engine-production.up.railway.app
+
 ## art
 
 Hero sprites: Clint Bellanger / Flare, CC-BY-SA 3.0.
