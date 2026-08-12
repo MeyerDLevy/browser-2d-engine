@@ -57,6 +57,10 @@
     #create-row input { flex: 1; }
     #err { color: #e88; min-height: 1.2em; margin-top: 8px; }
     .muted { color: #777; }
+    #map-row { display: flex; gap: 8px; align-items: center; }
+    #map-row select { flex: 1; font: inherit; background: #141310; color: #eee; border: 1px solid #444; padding: 7px 8px; }
+    #editor-link { margin-top: 14px; }
+    #editor-link a { color: #c4a35a; }
   </style>
 </head>
 <body>
@@ -87,7 +91,14 @@
         <input id="room" placeholder="room name" maxlength="32" autocomplete="off">
         <button id="go">join</button>
       </div>
+      <label>map (optional)</label>
+      <div id="map-row">
+        <select id="map">
+          <option value="">procedural town</option>
+        </select>
+      </div>
       <div id="err"></div>
+      <div id="editor-link"><a href="?editor=1">map editor</a></div>
     </div>
   </div>
   <script src="/client.js"></script>

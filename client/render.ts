@@ -1,5 +1,7 @@
 import {
-  TALL, TILE_COLOR, TILE_H, TILE_SIDE, TILE_W, getTile, iso, screenToTile, type World,
+  EDGE_DOOR, EDGE_NONE, EDGE_WALL, EDGE_WINDOW,
+  TILE_COLOR, TILE_H, TILE_W,
+  edgeN, edgeW, getTile, hasRoof, iso, screenToTile, type World,
 } from '../shared/world.ts'
 import { ITEM_COLOR, type Entity } from '../shared/entities.ts'
 
@@ -9,7 +11,7 @@ const FRAME = 128
 const SCALE = 0.85
 const FEET_X = 64
 const FEET_Y = 96
-const WALL_H = 44
+export const WALL_H = 44
 const CUT_H = 4
 const ANIMS = {
   stance: { col: 0, frames: 4, ms: 800, loop: 'pong' as const },
@@ -83,7 +85,6 @@ function prism(ctx: CanvasRenderingContext2D, tx: number, ty: number, h: number,
   const p = iso(tx, ty)
   const L = { x: p.x - TILE_W / 2, y: p.y + TILE_H / 2 }
   const R = { x: p.x + TILE_W / 2, y: p.y + TILE_H / 2 }
-  const B = { x: p.x, y: p.y + TILE_H }
   ctx.beginPath()
   ctx.moveTo(L.x, L.y - h)
   ctx.lineTo(p.x, p.y - h)
@@ -112,46 +113,132 @@ function prism(ctx: CanvasRenderingContext2D, tx: number, ty: number, h: number,
   ctx.stroke()
 }
 
-function drawTile(
-  ctx: CanvasRenderingContext2D,
-  w: World,
-  tx: number,
-  ty: number,
-  vis: Set<string>,
-  px: number,
-  py: number,
-) {
-  const seen = !vis || vis.has(tx + ',' + ty)
+function cutNear(tx: number, ty: number, px: number, py: number) {
+  const dx = tx - px
+  const dy = ty - py
+  return tx + ty > px + py && dx * dx + dy * dy < 36
+}
+
+function drawFloor(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: number, seen: boolean) {
+  const p = iso(tx, ty)
+  diamond(ctx, p.x, p.y)
   if (!seen) {
-    const p = iso(tx, ty)
-    diamond(ctx, p.x, p.y)
     ctx.fillStyle = '#0a0a0a'
     ctx.fill()
     return
   }
   const t = getTile(w, tx, ty)
-  const top = TILE_COLOR[t]
-  const side = TILE_SIDE[t]
-  if (TALL[t]) {
-    const dx = tx - px
-    const dy = ty - py
-    const cut = tx + ty > px + py && dx * dx + dy * dy < 36
-    const h = cut ? CUT_H : WALL_H
-    if (cut) ctx.globalAlpha = 0.35
-    prism(ctx, tx, ty, h, top, side)
-    ctx.globalAlpha = 1
-    return
-  }
-  const p = iso(tx, ty)
-  diamond(ctx, p.x, p.y)
-  ctx.fillStyle = top
+  ctx.fillStyle = TILE_COLOR[t] || '#444'
   ctx.fill()
   ctx.strokeStyle = '#00000022'
   ctx.lineWidth = 0.5
   ctx.stroke()
 }
 
+function drawEdgeSeg(
+  ctx: CanvasRenderingContext2D,
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  h: number,
+  kind: number,
+  alpha: number,
+) {
+  if (kind === EDGE_NONE) return
+  const prev = ctx.globalAlpha
+  ctx.globalAlpha = alpha
+  const side = kind === EDGE_WINDOW ? '#4a6a78' : kind === EDGE_DOOR ? '#5c3a22' : '#4a3a30'
+  const top = kind === EDGE_WINDOW ? '#8ab4c8' : kind === EDGE_DOOR ? '#6b5344' : '#6b5344'
+  // left face-ish quad along edge
+  ctx.beginPath()
+  ctx.moveTo(a.x, a.y)
+  ctx.lineTo(b.x, b.y)
+  ctx.lineTo(b.x, b.y - h)
+  ctx.lineTo(a.x, a.y - h)
+  ctx.closePath()
+  ctx.fillStyle = side
+  ctx.fill()
+  ctx.strokeStyle = '#00000044'
+  ctx.lineWidth = 0.6
+  ctx.stroke()
+  // top cap
+  ctx.beginPath()
+  ctx.moveTo(a.x, a.y - h)
+  ctx.lineTo(b.x, b.y - h)
+  ctx.strokeStyle = top
+  ctx.lineWidth = 2
+  ctx.stroke()
+  if (kind === EDGE_WINDOW && h > 10) {
+    const mid = 0.35
+    const ya = a.y - h * mid
+    const yb = b.y - h * mid
+    const ya2 = a.y - h * 0.75
+    const yb2 = b.y - h * 0.75
+    ctx.beginPath()
+    ctx.moveTo(a.x, ya)
+    ctx.lineTo(b.x, yb)
+    ctx.lineTo(b.x, yb2)
+    ctx.lineTo(a.x, ya2)
+    ctx.closePath()
+    ctx.fillStyle = '#a8d0e8aa'
+    ctx.fill()
+  }
+  if (kind === EDGE_DOOR && h > 10) {
+    // open gap: redraw floor-ish nothing — just leave lower middle undrawn by only drawing sides
+    // already drawn full; overlay gap with dark void strip
+    const t0 = 0.28, t1 = 0.72
+    const ax = a.x + (b.x - a.x) * t0
+    const ay = a.y + (b.y - a.y) * t0
+    const bx = a.x + (b.x - a.x) * t1
+    const by = a.y + (b.y - a.y) * t1
+    ctx.beginPath()
+    ctx.moveTo(ax, ay - 1)
+    ctx.lineTo(bx, by - 1)
+    ctx.lineTo(bx, by - h + 6)
+    ctx.lineTo(ax, ay - h + 6)
+    ctx.closePath()
+    ctx.fillStyle = '#1a1a18'
+    ctx.fill()
+  }
+  ctx.globalAlpha = prev
+}
+
+function drawEdges(
+  ctx: CanvasRenderingContext2D,
+  w: World,
+  tx: number,
+  ty: number,
+  seen: boolean,
+  px: number,
+  py: number,
+) {
+  if (!seen) return
+  const cut = cutNear(tx, ty, px, py)
+  const h = cut ? CUT_H : WALL_H
+  const alpha = cut ? 0.35 : 1
+  const nw = iso(tx, ty)
+  const ne = iso(tx + 1, ty)
+  const sw = iso(tx, ty + 1)
+  // N edge of this tile: between NW and NE
+  const n = edgeN(w, tx, ty)
+  if (n) drawEdgeSeg(ctx, nw, ne, h, n, alpha)
+  // W edge of this tile: between NW and SW
+  const ww = edgeW(w, tx, ty)
+  if (ww) drawEdgeSeg(ctx, nw, sw, h, ww, alpha)
+}
+
+function drawRoof(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: number, underRoof: boolean) {
+  if (underRoof || !hasRoof(w, tx, ty)) return
+  const p = iso(tx, ty)
+  diamond(ctx, p.x, p.y - WALL_H)
+  ctx.fillStyle = '#5a4030cc'
+  ctx.fill()
+  ctx.strokeStyle = '#00000033'
+  ctx.lineWidth = 0.5
+  ctx.stroke()
+}
+
 export type DrawEnt = { e: Entity; x: number; y: number; moving?: boolean }
+export type PreviewEdge = { x: number; y: number; dir: 'N' | 'W'; kind: number }
 
 function drawPlayer(ctx: CanvasRenderingContext2D, d: DrawEnt, now: number) {
   const { e, x, y } = d
@@ -212,6 +299,7 @@ export function render(
   vis: Set<string> = null,
   px = 0,
   py = 0,
+  preview: PreviewEdge[] = null,
 ) {
   const { canvas } = ctx
   ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -245,11 +333,15 @@ export function render(
 
   const ix = Math.floor(px)
   const iy = Math.floor(py)
+  const underRoof = hasRoof(world, px, py)
+
   for (let sum = minX + minY; sum <= maxX + maxY; sum++) {
     for (let tx = minX; tx <= maxX; tx++) {
       const ty = sum - tx
       if (ty < minY || ty > maxY) continue
-      drawTile(ctx, world, tx, ty, vis, ix, iy)
+      const seen = !vis || vis.has(tx + ',' + ty)
+      drawFloor(ctx, world, tx, ty, seen)
+      drawEdges(ctx, world, tx, ty, seen, ix, iy)
     }
   }
 
@@ -258,4 +350,31 @@ export function render(
     if (vis && d.e.id !== meId && !vis.has(Math.floor(d.x) + ',' + Math.floor(d.y))) continue
     drawEntity(ctx, d, meId, now)
   }
+
+  // roofs after entities so they cover interiors when outside
+  for (let sum = minX + minY; sum <= maxX + maxY; sum++) {
+    for (let tx = minX; tx <= maxX; tx++) {
+      const ty = sum - tx
+      if (ty < minY || ty > maxY) continue
+      drawRoof(ctx, world, tx, ty, underRoof)
+    }
+  }
+
+  if (preview) {
+    for (const pe of preview) {
+      const nw = iso(pe.x, pe.y)
+      const ne = iso(pe.x + 1, pe.y)
+      const sw = iso(pe.x, pe.y + 1)
+      if (pe.dir === 'N') drawEdgeSeg(ctx, nw, ne, WALL_H, pe.kind || EDGE_WALL, 0.7)
+      else drawEdgeSeg(ctx, nw, sw, WALL_H, pe.kind || EDGE_WALL, 0.7)
+    }
+  }
+}
+
+export function screenToWorld(cam: Cam, sx: number, sy: number, canvas: HTMLCanvasElement) {
+  const z = cam.zoom * (devicePixelRatio || 1)
+  const ox = (sx * (devicePixelRatio || 1) - canvas.width / 2) / z
+  const oy = (sy * (devicePixelRatio || 1) - canvas.height / 2) / z
+  const origin = iso(cam.x, cam.y)
+  return screenToTile(origin.x + ox, origin.y + oy)
 }

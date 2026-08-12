@@ -1,8 +1,9 @@
 import * as esbuild from 'esbuild'
 import { createServer } from 'http'
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
+import { join } from 'path'
 import { WebSocketServer, WebSocket } from 'ws'
-import { MAP_SIZE, TICK_DT, TICK_HZ } from '../shared/world.ts'
+import { MAP_SIZE, TICK_DT, TICK_HZ, applyMap, serializeMap, type MapData } from '../shared/world.ts'
 import { createGame, nearby, spawnPlayer, step } from '../shared/sim.ts'
 import { emptyInput, type ClientMsg, type Input } from '../shared/protocol.ts'
 import type { GameState } from '../shared/entities.ts'
@@ -11,6 +12,9 @@ const PORT = Number(process.env.PORT) || 8080
 const PROD = process.env.NODE_ENV === 'production'
 const EMPTY_MS = 5 * 60 * 1000
 const ROOM_CAP = 8
+const MAPS_DIR = 'maps'
+
+if (!existsSync(MAPS_DIR)) mkdirSync(MAPS_DIR)
 
 const build = await esbuild.context({
   entryPoints: ['client/main.ts'],
@@ -31,6 +35,8 @@ type Lobby = {
   tick: number
   timer: ReturnType<typeof setInterval>
   emptyTimer: ReturnType<typeof setTimeout>
+  mapName: string
+  mapData: MapData
 }
 
 const lobbies = new Map<string, Lobby>()
@@ -39,21 +45,44 @@ function slug(s: string) {
   return (s || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'room'
 }
 
-function getLobby(id: string) {
+function mapPath(name: string) {
+  return join(MAPS_DIR, slug(name) + '.json')
+}
+
+function loadMap(name: string): MapData {
+  const p = mapPath(name)
+  if (!existsSync(p)) return null
+  return JSON.parse(readFileSync(p, 'utf8'))
+}
+
+function listMaps() {
+  return readdirSync(MAPS_DIR).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5))
+}
+
+function getLobby(id: string, mapName = '') {
   id = slug(id)
   if (!lobbies.has(id)) {
     const seed = Math.floor(Math.random() * 1e9)
+    const state = createGame(seed, MAP_SIZE)
+    let mapData: MapData = null
+    if (mapName) {
+      mapData = loadMap(mapName)
+      if (mapData) applyMap(state.world, mapData)
+    }
+    if (!mapData) mapData = serializeMap(state.world)
     const L: Lobby = {
       id,
-      state: createGame(seed, MAP_SIZE),
+      state,
       clients: new Map(),
       tick: 0,
       timer: null,
       emptyTimer: null,
+      mapName: mapName ? slug(mapName) : '',
+      mapData,
     }
     L.timer = setInterval(() => tickLobby(L), 1000 / TICK_HZ)
     lobbies.set(id, L)
-    console.log('lobby', id, 'seed', seed)
+    console.log('lobby', id, 'seed', seed, 'map', L.mapName || '(procedural)')
   }
   return lobbies.get(id)
 }
@@ -91,7 +120,16 @@ function listRooms() {
     id: L.id,
     players: L.clients.size,
     cap: ROOM_CAP,
+    map: L.mapName || null,
   }))
+}
+
+function readBody(req): Promise<string> {
+  return new Promise(resolve => {
+    let d = ''
+    req.on('data', c => { d += c })
+    req.on('end', () => resolve(d))
+  })
 }
 
 const mime = {
@@ -99,16 +137,41 @@ const mime = {
   '.js': 'text/javascript',
   '.map': 'application/json',
   '.png': 'image/png',
+  '.json': 'application/json',
 }
 
-const httpServer = createServer((req, res) => {
+const httpServer = createServer(async (req, res) => {
   let p = req.url.split('?')[0]
   if (p === '/') p = '/index.html'
+
   if (p === '/rooms') {
     res.setHeader('Content-Type', 'application/json')
     res.end(JSON.stringify(listRooms()))
     return
   }
+  if (p === '/maps' && req.method === 'GET') {
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify(listMaps()))
+    return
+  }
+  if (p.startsWith('/maps/') && req.method === 'GET') {
+    const name = slug(p.slice('/maps/'.length))
+    const data = loadMap(name)
+    if (!data) { res.statusCode = 404; res.end('not found'); return }
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify(data))
+    return
+  }
+  if (p.startsWith('/maps/') && req.method === 'POST') {
+    const name = slug(p.slice('/maps/'.length))
+    const body = await readBody(req)
+    const data = JSON.parse(body)
+    writeFileSync(mapPath(name), JSON.stringify(data))
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ ok: true, name }))
+    return
+  }
+
   let file = null
   if (p === '/index.html') file = 'client/index.html'
   else if (p === '/client.js') file = 'dist/client.js'
@@ -132,7 +195,7 @@ wss.on('connection', ws => {
   ws.on('message', raw => {
     const msg: ClientMsg = JSON.parse(String(raw))
     if (msg.type === 'join') {
-      const L = getLobby(msg.lobby || 'room')
+      const L = getLobby(msg.lobby || 'room', msg.map || '')
       if (L.clients.size >= ROOM_CAP) {
         send(ws, { type: 'error', message: 'room full (8)' })
         return
@@ -150,6 +213,7 @@ wss.on('connection', ws => {
         mapSize: L.state.world.mapSize,
         tick: L.tick,
         lobby: L.id,
+        mapData: L.mapData,
       })
       return
     }

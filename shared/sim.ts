@@ -1,4 +1,4 @@
-import { INTEREST, getTile, hash, isSolid, ROAD } from './world.ts'
+import { INTEREST, getTile, hash, isSolid, edgeBlocks, edgeN, edgeW, makeWorld, ROAD } from './world.ts'
 import {
   ENTER_RANGE, ITEM_TYPES, INV_MAX, MELEE_DMG, MELEE_RANGE, PICKUP_RANGE,
   PLAYER_COLORS, PLAYER_R, PLAYER_SPEED, VEHICLE_SPEED,
@@ -11,8 +11,8 @@ export function nid(s: GameState, prefix: string) {
   return prefix + s.nextId++
 }
 
-export function createGame(seed: number, mapSize: number): GameState {
-  const world: World = { seed, mapSize, overrides: new Map() }
+export function createGame(seed: number, mapSize: number, blank = false): GameState {
+  const world = makeWorld(seed, mapSize, blank)
   const s: GameState = { world, entities: new Map(), nextId: 1 }
   const cx = Math.floor(mapSize / 2)
   const cy = Math.floor(mapSize / 2)
@@ -67,13 +67,30 @@ export function spawnPlayer(s: GameState, name: string) {
   return e
 }
 
-function tryMove(w: World, e: Entity, nx: number, ny: number, r = PLAYER_R) {
-  const blocked = (x: number, y: number) =>
-    isSolid(w, x - r, y - r) || isSolid(w, x + r, y - r) ||
+function floorBlocked(w: World, x: number, y: number, r: number) {
+  return isSolid(w, x - r, y - r) || isSolid(w, x + r, y - r) ||
     isSolid(w, x - r, y + r) || isSolid(w, x + r, y + r)
-  if (!blocked(nx, ny)) { e.x = nx; e.y = ny; return }
-  if (!blocked(nx, e.y)) { e.x = nx; return }
-  if (!blocked(e.x, ny)) { e.y = ny; return }
+}
+
+function crossX(w: World, x0: number, x1: number, y: number, r: number) {
+  const a = Math.floor(x0)
+  const b = Math.floor(x1)
+  if (a === b) return false
+  const edgeX = Math.max(a, b)
+  return edgeBlocks(edgeW(w, edgeX, y - r)) || edgeBlocks(edgeW(w, edgeX, y + r))
+}
+
+function crossY(w: World, y0: number, y1: number, x: number, r: number) {
+  const a = Math.floor(y0)
+  const b = Math.floor(y1)
+  if (a === b) return false
+  const edgeY = Math.max(a, b)
+  return edgeBlocks(edgeN(w, x - r, edgeY)) || edgeBlocks(edgeN(w, x + r, edgeY))
+}
+
+function tryMove(w: World, e: Entity, nx: number, ny: number, r = PLAYER_R) {
+  if (!floorBlocked(w, nx, e.y, r) && !crossX(w, e.x, nx, e.y, r)) e.x = nx
+  if (!floorBlocked(w, e.x, ny, r) && !crossY(w, e.y, ny, e.x, r)) e.y = ny
 }
 
 export function applyMove(s: GameState, e: Entity, input: Input, dt: number) {

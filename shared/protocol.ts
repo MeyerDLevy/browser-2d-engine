@@ -1,4 +1,5 @@
 import type { Entity } from './entities.ts'
+import type { MapData } from './world.ts'
 
 export type Input = {
   seq: number
@@ -14,10 +15,10 @@ export function emptyInput(): Input {
 }
 
 export type ClientMsg =
-  | { type: 'join'; lobby: string; name: string }
+  | { type: 'join'; lobby: string; name: string; map?: string }
   | { type: 'input'; seq: number; up: boolean; down: boolean; left: boolean; right: boolean; actions: string[] }
 
 export type ServerMsg =
-  | { type: 'welcome'; playerId: string; seed: number; mapSize: number; tick: number; lobby: string }
+  | { type: 'welcome'; playerId: string; seed: number; mapSize: number; tick: number; lobby: string; mapData?: MapData }
   | { type: 'snapshot'; tick: number; seq: number; entities: Entity[] }
   | { type: 'error'; message: string }
