@@ -1,6 +1,7 @@
 import {
   EDGE_DOOR, EDGE_NONE, EDGE_WALL, EDGE_WINDOW,
   NONE, TILE_COLOR, TILE_H, TILE_W, ROOF_RISE, DIR_N, DIR_E, DIR_S, DIR_W,
+  CORNER_NE, CORNER_SE, CORNER_SW, CORNER_NW,
   edgeN, edgeW, getTile, getRoof, getStairs, iso, screenToTile, type World,
 } from '../shared/world.ts'
 import { ITEM_COLOR, type Entity } from '../shared/entities.ts'
@@ -254,10 +255,10 @@ function drawRoofTile(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: n
   if (underRoof) return
   const roof = getRoof(w, tx, ty, z)
   if (!roof) return
-  const p = iso(tx, ty)
   const base = levelY(z)
   ctx.globalAlpha = dim
   if (roof.flat) {
+    const p = iso(tx, ty)
     diamond(ctx, p.x, p.y - base - WALL_H)
     ctx.fillStyle = '#5a4030cc'
     ctx.fill()
@@ -271,24 +272,24 @@ function drawRoofTile(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: n
     const ne = iso(tx + 1, ty)
     const se = iso(tx + 1, ty + 1)
     const sw = iso(tx, ty + 1)
-    // which edge is low depends on slope-down direction
-    let lo = [nw, ne, se, sw]
-    let hi = [nw, ne, se, sw]
-    if (roof.dir === DIR_N) {
-      lo = [nw, ne]; hi = [sw, se]
-    } else if (roof.dir === DIR_S) {
-      lo = [sw, se]; hi = [nw, ne]
-    } else if (roof.dir === DIR_W) {
-      lo = [nw, sw]; hi = [ne, se]
+    let hNW = h1, hNE = h1, hSE = h1, hSW = h1
+    if (roof.corner) {
+      // outer hip: low at eave corner, high at opposite (ridge)
+      if (roof.dir === CORNER_SW) { hSW = h0; hSE = h0; hNW = h0; hNE = h1 }
+      else if (roof.dir === CORNER_SE) { hSE = h0; hSW = h0; hNE = h0; hNW = h1 }
+      else if (roof.dir === CORNER_NW) { hNW = h0; hNE = h0; hSW = h0; hSE = h1 }
+      else if (roof.dir === CORNER_NE) { hNE = h0; hNW = h0; hSE = h0; hSW = h1 }
     } else {
-      lo = [ne, se]; hi = [nw, sw]
+      hNW = roof.dir === DIR_N || roof.dir === DIR_W ? h0 : h1
+      hNE = roof.dir === DIR_N || roof.dir === DIR_E ? h0 : h1
+      hSE = roof.dir === DIR_S || roof.dir === DIR_E ? h0 : h1
+      hSW = roof.dir === DIR_S || roof.dir === DIR_W ? h0 : h1
     }
-    // draw as two triangles forming a slanted diamond
     const pts = [
-      { x: nw.x, y: nw.y - (roof.dir === DIR_N || roof.dir === DIR_W ? h0 : h1) },
-      { x: ne.x, y: ne.y - (roof.dir === DIR_N || roof.dir === DIR_E ? h0 : h1) },
-      { x: se.x, y: se.y - (roof.dir === DIR_S || roof.dir === DIR_E ? h0 : h1) },
-      { x: sw.x, y: sw.y - (roof.dir === DIR_S || roof.dir === DIR_W ? h0 : h1) },
+      { x: nw.x, y: nw.y - hNW },
+      { x: ne.x, y: ne.y - hNE },
+      { x: se.x, y: se.y - hSE },
+      { x: sw.x, y: sw.y - hSW },
     ]
     ctx.beginPath()
     ctx.moveTo(pts[0].x, pts[0].y)
@@ -296,12 +297,20 @@ function drawRoofTile(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: n
     ctx.lineTo(pts[2].x, pts[2].y)
     ctx.lineTo(pts[3].x, pts[3].y)
     ctx.closePath()
-    ctx.fillStyle = '#6a4a30dd'
+    ctx.fillStyle = roof.corner ? '#7a5538dd' : '#6a4a30dd'
     ctx.fill()
     ctx.strokeStyle = '#00000044'
     ctx.lineWidth = 0.6
     ctx.stroke()
-    void lo; void hi
+    if (roof.corner) {
+      ctx.beginPath()
+      if (roof.dir === CORNER_SW) { ctx.moveTo(sw.x, sw.y - hSW); ctx.lineTo(ne.x, ne.y - hNE) }
+      else if (roof.dir === CORNER_SE) { ctx.moveTo(se.x, se.y - hSE); ctx.lineTo(nw.x, nw.y - hNW) }
+      else if (roof.dir === CORNER_NW) { ctx.moveTo(nw.x, nw.y - hNW); ctx.lineTo(se.x, se.y - hSE) }
+      else { ctx.moveTo(ne.x, ne.y - hNE); ctx.lineTo(sw.x, sw.y - hSW) }
+      ctx.strokeStyle = '#00000055'
+      ctx.stroke()
+    }
   }
   ctx.globalAlpha = 1
 }

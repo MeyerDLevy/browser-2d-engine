@@ -6,7 +6,16 @@ export const INTEREST = 48
 export const TILE_W = 64
 export const TILE_H = 32
 export const MAX_Z = 6
-export const ROOF_RISE = 12
+// screen N–S span of a tile is TILE_H; equal rise ⇒ visual 45°
+export const ROOF_RISE = TILE_H
+
+export const ROOF_SLOPE = 0
+export const ROOF_CORNER = 1
+// corner quad = which corner is the low (eave) point
+export const CORNER_NE = 0
+export const CORNER_SE = 1
+export const CORNER_SW = 2
+export const CORNER_NW = 3
 
 export const NONE = -1
 export const GRASS = 0
@@ -179,15 +188,70 @@ export function clearStairs(w: World, x: number, y: number, z = 0) {
   w.stairs.delete(cellKey(x, y, z))
 }
 
-// roof value: -1 = flat; else dir * 256 + step (step >= 0)
-export function packRoof(dir: number, step: number) {
+// roof value: -1 = flat
+// slope:  kind0 * 1024 + dir * 256 + step  (legacy dir*256+step still unpacks as slope)
+// corner: kind1 * 1024 + quad * 256 + step
+export function packRoof(dir: number, step: number, kind = ROOF_SLOPE) {
   if (step < 0) return -1
-  return (dir & 3) * 256 + (step & 255)
+  return (kind & 3) * 1024 + (dir & 3) * 256 + (step & 255)
+}
+
+export function packRoofCorner(quad: number, step: number) {
+  return packRoof(quad, step, ROOF_CORNER)
 }
 
 export function unpackRoof(v: number) {
-  if (v < 0) return { dir: 0, step: -1, flat: true }
-  return { dir: Math.floor(v / 256) & 3, step: v & 255, flat: false }
+  if (v < 0) return { kind: ROOF_SLOPE, dir: 0, step: -1, flat: true, corner: false }
+  const kind = Math.floor(v / 1024) & 3
+  const dir = Math.floor((v % 1024) / 256) & 3
+  const step = v & 255
+  return { kind, dir, step, flat: false, corner: kind === ROOF_CORNER }
+}
+
+function roofEntry(w: World, x: number, y: number, z: number) {
+  const k = cellKey(x, y, z)
+  if (w.noRoof.has(k) || !w.roofs.has(k)) return null
+  return unpackRoof(w.roofs.get(k))
+}
+
+/** After painting slopes, fill outer hip corners where perpendicular slopes meet. */
+export function resolveRoofCorners(w: World, z: number) {
+  const candidates = new Set<string>()
+  for (const [k, v] of w.roofs) {
+    const parts = k.split(',')
+    if (+parts[2] !== z) continue
+    const u = unpackRoof(v)
+    if (u.flat || u.corner) continue
+    const x = +parts[0], y = +parts[1]
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      candidates.add(cellKey(x + dx, y + dy, z))
+    }
+  }
+  // drop old corners on this level so we can rebuild
+  for (const k of [...w.roofs.keys()]) {
+    const parts = k.split(',')
+    if (+parts[2] !== z) continue
+    if (unpackRoof(w.roofs.get(k)).corner) w.roofs.delete(k)
+  }
+  for (const k of candidates) {
+    const parts = k.split(',')
+    const x = +parts[0], y = +parts[1]
+    const E = roofEntry(w, x + 1, y, z)
+    const W = roofEntry(w, x - 1, y, z)
+    const N = roofEntry(w, x, y - 1, z)
+    const S = roofEntry(w, x, y + 1, z)
+    const slope = (r: ReturnType<typeof unpackRoof>, dir: number) =>
+      r && !r.flat && !r.corner && r.dir === dir ? r : null
+    let quad = -1, step = 0
+    // outer hips: low corner points outward
+    if (slope(E, DIR_S) && slope(N, DIR_W)) { quad = CORNER_SW; step = Math.min(E.step, N.step) }
+    else if (slope(W, DIR_S) && slope(N, DIR_E)) { quad = CORNER_SE; step = Math.min(W.step, N.step) }
+    else if (slope(E, DIR_N) && slope(S, DIR_W)) { quad = CORNER_NW; step = Math.min(E.step, S.step) }
+    else if (slope(W, DIR_N) && slope(S, DIR_E)) { quad = CORNER_NE; step = Math.min(W.step, S.step) }
+    if (quad < 0) continue
+    w.roofs.set(k, packRoofCorner(quad, step))
+    w.noRoof.delete(k)
+  }
 }
 
 export function getRoof(w: World, x: number, y: number, z = 0) {
@@ -198,7 +262,7 @@ export function getRoof(w: World, x: number, y: number, z = 0) {
   if (z !== 0 || w.blank) return null
   const block = 20
   const bx = ix % block, by = iy % block
-  if (inBuilding(bx, by)) return { dir: 0, step: -1, flat: true }
+  if (inBuilding(bx, by)) return { kind: ROOF_SLOPE, dir: 0, step: -1, flat: true, corner: false }
   return null
 }
 

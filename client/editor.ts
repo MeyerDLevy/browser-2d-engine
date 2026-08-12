@@ -4,7 +4,7 @@ import {
   DIR_N, DIR_E, DIR_S, DIR_W,
   makeWorld, serializeMap, worldFromMap,
   setTile, setEdgeN, setEdgeW, setRoof, setStairs, clearStairs, getStairs,
-  edgeN, edgeW, packRoof,
+  edgeN, edgeW, packRoof, resolveRoofCorners,
   type World, type MapData,
 } from '../shared/world.ts'
 import { render, resize, screenToWorld, type Cam, type PreviewEdge } from './render.ts'
@@ -180,6 +180,7 @@ export function startEditor() {
     const data: MapData = await (await fetch('/maps/' + name)).json()
     world = worldFromMap(data)
     clearVisionCache()
+    for (let z = 0; z < MAX_Z; z++) resolveRoofCorners(world, z)
     nameEl.value = name
     setMsg('loaded ' + name)
   }
@@ -240,6 +241,7 @@ export function startEditor() {
     // slope down = dir, so first tile in reverse of dir has highest step...
     // Plan: step 0 at eave (low), increasing inward. Drag from eave toward ridge.
     tiles.forEach((t, i) => setRoof(world, t.x, t.y, true, editZ, packRoof(dir, i)))
+    resolveRoofCorners(world, editZ)
   }
 
   function paintAt(tx: number, ty: number) {
@@ -268,6 +270,7 @@ export function startEditor() {
       else {
         setRoof(world, ix, iy, false, editZ)
         setTile(world, ix, iy, editZ === 0 ? GRASS : NONE, editZ)
+        resolveRoofCorners(world, editZ)
       }
     }
     clearVisionCache()
@@ -362,6 +365,6 @@ export function startEditor() {
     requestAnimationFrame(frame)
   }
   requestAnimationFrame(frame)
-  setMsg('[ ] level · drag walls · stairs click/rotate · slope drag · wasd pan')
+  setMsg('[ ] level · slope drag (45°) · corners auto · stairs click/rotate · wasd pan')
   ;(window as any).G = { world, cam, get z() { return editZ } }
 }
