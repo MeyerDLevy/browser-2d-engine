@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>iso engine</title>
+  <style>
+    html, body { margin: 0; overflow: hidden; background: #1a1a18; font: 13px/1.45 ui-monospace, Consolas, monospace; color: #ddd; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    #hud { position: absolute; inset: 0; pointer-events: none; }
+    #tl, #tr, #bl, #br {
+      position: absolute; padding: 10px 12px;
+      background: rgba(0,0,0,.5); max-width: 280px;
+    }
+    #tl { top: 0; left: 0; }
+    #tr { top: 0; right: 0; text-align: right; }
+    #bl { bottom: 0; left: 0; }
+    #br { bottom: 0; right: 0; color: #aaa; }
+    #dead {
+      display: none; position: absolute; inset: 0;
+      place-items: center; font-size: 28px;
+      background: rgba(80,0,0,.35); color: #f88;
+    }
+    #dead.on { display: grid; }
+    #lobby {
+      position: absolute; inset: 0;
+      display: grid; place-items: center;
+      background: rgba(12,12,10,.88);
+    }
+    #lobby.off { display: none; }
+    #panel {
+      width: min(420px, 92vw);
+      padding: 22px 24px 18px;
+      background: #22201c;
+      border: 1px solid #3a3830;
+    }
+    #panel h1 { margin: 0 0 14px; font-size: 18px; font-weight: 600; }
+    label { display: block; color: #aaa; margin: 10px 0 4px; }
+    input {
+      width: 100%; box-sizing: border-box;
+      background: #141310; color: #eee; border: 1px solid #444;
+      padding: 7px 8px; font: inherit;
+    }
+    button {
+      font: inherit; cursor: pointer;
+      background: #5a4030; color: #eee; border: 1px solid #7a5a40;
+      padding: 7px 12px;
+    }
+    button:hover { background: #6a4c38; }
+    #rooms { margin: 8px 0 12px; min-height: 48px; }
+    .room {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 8px; margin: 4px 0; background: #2a2824; cursor: pointer;
+    }
+    .room:hover { background: #35322c; }
+    .room.full { opacity: .45; cursor: default; }
+    #create-row { display: flex; gap: 8px; }
+    #create-row input { flex: 1; }
+    #err { color: #e88; min-height: 1.2em; margin-top: 8px; }
+    .muted { color: #777; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="hud">
+    <div id="tl"></div>
+    <div id="tr"></div>
+    <div id="bl"></div>
+    <div id="br">
+      wasd move<br>
+      e pickup &nbsp; g drop<br>
+      space attack<br>
+      f enter/exit car<br>
+      scroll zoom<br>
+      <span style="color:#666">hero: Clint Bellanger / Flare (CC-BY-SA 3.0)</span>
+    </div>
+    <div id="dead">down — respawning</div>
+  </div>
+  <div id="lobby">
+    <div id="panel">
+      <h1>iso engine</h1>
+      <label>name</label>
+      <input id="name" maxlength="20" autocomplete="off">
+      <label>open rooms</label>
+      <div id="rooms" class="muted">loading…</div>
+      <label>create / join by name</label>
+      <div id="create-row">
+        <input id="room" placeholder="room name" maxlength="32" autocomplete="off">
+        <button id="go">join</button>
+      </div>
+      <div id="err"></div>
+    </div>
+  </div>
+  <script src="/client.js"></script>
+</body>
+</html>

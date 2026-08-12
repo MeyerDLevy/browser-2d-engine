@@ -1,0 +1,19 @@
+{
+  "name": "browser-2d-engine",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server/main.ts",
+    "start": "tsx server/main.ts"
+  },
+  "dependencies": {
+    "esbuild": "^0.25.8",
+    "tsx": "^4.20.3",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.2"
+  }
+}
