@@ -1,4 +1,7 @@
-import { INTEREST, getTile, hash, isSolid, edgeBlocks, edgeN, edgeW, makeWorld, ROAD } from './world.ts'
+import {
+  INTEREST, MAX_Z, getTile, hash, isSolid, edgeBlocks, edgeN, edgeW,
+  getStairs, dirDelta, makeWorld, ROAD,
+} from './world.ts'
 import {
   ENTER_RANGE, ITEM_TYPES, INV_MAX, MELEE_DMG, MELEE_RANGE, PICKUP_RANGE,
   PLAYER_COLORS, PLAYER_R, PLAYER_SPEED, VEHICLE_SPEED,
@@ -19,7 +22,7 @@ export function createGame(seed: number, mapSize: number, blank = false): GameSt
   for (let i = 0; i < 80; i++) {
     let x = cx + (hash(i, 1, seed) % 200) - 100
     let y = cy + (hash(i, 2, seed) % 200) - 100
-    if (getTile(world, x, y) !== ROAD) {
+    if (getTile(world, x, y, 0) !== ROAD) {
       x = cx + (i % 20) - 10
       y = cy
     }
@@ -30,9 +33,9 @@ export function createGame(seed: number, mapSize: number, blank = false): GameSt
   return s
 }
 
-export function spawnItem(s: GameState, x: number, y: number, spec: Item) {
+export function spawnItem(s: GameState, x: number, y: number, spec: Item, z = 0) {
   const e: Entity = {
-    id: nid(s, 'i'), kind: 'item', x, y, facing: 0,
+    id: nid(s, 'i'), kind: 'item', x, y, z, facing: 0,
     itemType: spec.type, name: spec.name,
   }
   s.entities.set(e.id, e)
@@ -40,7 +43,7 @@ export function spawnItem(s: GameState, x: number, y: number, spec: Item) {
 }
 
 export function spawnVehicle(s: GameState, x: number, y: number) {
-  const e: Entity = { id: nid(s, 'v'), kind: 'vehicle', x, y, facing: 0, name: 'car' }
+  const e: Entity = { id: nid(s, 'v'), kind: 'vehicle', x, y, z: 0, facing: 0, name: 'car' }
   s.entities.set(e.id, e)
   return e
 }
@@ -54,6 +57,7 @@ export function spawnPlayer(s: GameState, name: string) {
     kind: 'player',
     x: cx - 8 + n * 1.5 + 0.5,
     y: cy + 0.5,
+    z: 0,
     facing: 0,
     name,
     health: 100,
@@ -67,30 +71,63 @@ export function spawnPlayer(s: GameState, name: string) {
   return e
 }
 
-function floorBlocked(w: World, x: number, y: number, r: number) {
-  return isSolid(w, x - r, y - r) || isSolid(w, x + r, y - r) ||
-    isSolid(w, x - r, y + r) || isSolid(w, x + r, y + r)
+function floorBlocked(w: World, x: number, y: number, z: number, r: number) {
+  return isSolid(w, x - r, y - r, z) || isSolid(w, x + r, y - r, z) ||
+    isSolid(w, x - r, y + r, z) || isSolid(w, x + r, y + r, z)
 }
 
-function crossX(w: World, x0: number, x1: number, y: number, r: number) {
+function crossX(w: World, x0: number, x1: number, y: number, z: number, r: number) {
   const a = Math.floor(x0)
   const b = Math.floor(x1)
   if (a === b) return false
   const edgeX = Math.max(a, b)
-  return edgeBlocks(edgeW(w, edgeX, y - r)) || edgeBlocks(edgeW(w, edgeX, y + r))
+  return edgeBlocks(edgeW(w, edgeX, y - r, z)) || edgeBlocks(edgeW(w, edgeX, y + r, z))
 }
 
-function crossY(w: World, y0: number, y1: number, x: number, r: number) {
+function crossY(w: World, y0: number, y1: number, x: number, z: number, r: number) {
   const a = Math.floor(y0)
   const b = Math.floor(y1)
   if (a === b) return false
   const edgeY = Math.max(a, b)
-  return edgeBlocks(edgeN(w, x - r, edgeY)) || edgeBlocks(edgeN(w, x + r, edgeY))
+  return edgeBlocks(edgeN(w, x - r, edgeY, z)) || edgeBlocks(edgeN(w, x + r, edgeY, z))
+}
+
+function tryStairTransition(w: World, e: Entity, ox: number, oy: number) {
+  if (e.kind === 'vehicle') return
+  const z = e.z || 0
+  const tx0 = Math.floor(ox), ty0 = Math.floor(oy)
+  const tx1 = Math.floor(e.x), ty1 = Math.floor(e.y)
+  if (tx0 === tx1 && ty0 === ty1) return
+
+  const stair = getStairs(w, tx0, ty0, z)
+  if (stair != null) {
+    const d = dirDelta(stair)
+    if (tx1 === tx0 + d.dx && ty1 === ty0 + d.dy && z + 1 < MAX_Z) {
+      if (!isSolid(w, e.x, e.y, z + 1)) {
+        e.z = z + 1
+        return
+      }
+    }
+  }
+
+  const below = z - 1
+  if (below >= 0) {
+    const stairBelow = getStairs(w, tx1, ty1, below)
+    if (stairBelow != null) {
+      const d = dirDelta(stairBelow)
+      if (tx0 === tx1 + d.dx && ty0 === ty1 + d.dy) {
+        e.z = below
+      }
+    }
+  }
 }
 
 function tryMove(w: World, e: Entity, nx: number, ny: number, r = PLAYER_R) {
-  if (!floorBlocked(w, nx, e.y, r) && !crossX(w, e.x, nx, e.y, r)) e.x = nx
-  if (!floorBlocked(w, e.x, ny, r) && !crossY(w, e.y, ny, e.x, r)) e.y = ny
+  const z = e.z || 0
+  const ox = e.x, oy = e.y
+  if (!floorBlocked(w, nx, e.y, z, r) && !crossX(w, e.x, nx, e.y, z, r)) e.x = nx
+  if (!floorBlocked(w, e.x, ny, z, r) && !crossY(w, e.y, ny, e.x, z, r)) e.y = ny
+  tryStairTransition(w, e, ox, oy)
 }
 
 export function applyMove(s: GameState, e: Entity, input: Input, dt: number) {
@@ -101,16 +138,19 @@ export function applyMove(s: GameState, e: Entity, input: Input, dt: number) {
   e.facing = Math.atan2(dy, dx)
   const body = e.vehicleId ? s.entities.get(e.vehicleId) : e
   if (!body) return
+  if (e.vehicleId) body.z = 0
   const speed = e.vehicleId ? VEHICLE_SPEED : PLAYER_SPEED
   tryMove(s.world, body, body.x + dx * speed * dt, body.y + dy * speed * dt, e.vehicleId ? 0.45 : PLAYER_R)
-  if (e.vehicleId) { e.x = body.x; e.y = body.y }
+  if (e.vehicleId) { e.x = body.x; e.y = body.y; e.z = 0 }
 }
 
 function nearest(s: GameState, e: Entity, kind: Entity['kind'], range: number) {
   let best: Entity = null
   let bestD = range * range
+  const ez = e.z || 0
   for (const o of s.entities.values()) {
     if (o.kind !== kind || o.id === e.id) continue
+    if ((o.z || 0) !== ez) continue
     const d = (o.x - e.x) ** 2 + (o.y - e.y) ** 2
     if (d < bestD) { bestD = d; best = o }
   }
@@ -129,15 +169,17 @@ function pickup(s: GameState, e: Entity) {
 function drop(s: GameState, e: Entity) {
   if (!e.inventory.length) return
   const spec = e.inventory.pop()
-  spawnItem(s, e.x + Math.cos(e.facing) * 0.8, e.y + Math.sin(e.facing) * 0.8, spec)
+  spawnItem(s, e.x + Math.cos(e.facing) * 0.8, e.y + Math.sin(e.facing) * 0.8, spec, e.z || 0)
 }
 
 function attack(s: GameState, e: Entity, now: number) {
   if (e.attackCd > 0 || e.vehicleId || e.dead) return
   e.attackCd = 0.4
   const fx = Math.cos(e.facing), fy = Math.sin(e.facing)
+  const ez = e.z || 0
   for (const o of s.entities.values()) {
     if (o.kind !== 'player' || o.id === e.id || o.dead) continue
+    if ((o.z || 0) !== ez) continue
     const dx = o.x - e.x, dy = o.y - e.y
     if (dx * dx + dy * dy > MELEE_RANGE * MELEE_RANGE) continue
     if (dx * fx + dy * fy < 0) continue
@@ -148,7 +190,7 @@ function attack(s: GameState, e: Entity, now: number) {
       o.respawnAt = now + 3000
       while (o.inventory.length) {
         const spec = o.inventory.pop()
-        spawnItem(s, o.x + (Math.random() - 0.5), o.y + (Math.random() - 0.5), spec)
+        spawnItem(s, o.x + (Math.random() - 0.5), o.y + (Math.random() - 0.5), spec, o.z || 0)
       }
       if (o.vehicleId) {
         const v = s.entities.get(o.vehicleId)
@@ -165,14 +207,17 @@ function enterExit(s: GameState, e: Entity) {
     if (v) v.driverId = undefined
     e.vehicleId = undefined
     e.x += 1
+    e.z = 0
     return
   }
+  if ((e.z || 0) !== 0) return
   const v = nearest(s, e, 'vehicle', ENTER_RANGE)
   if (!v || v.driverId) return
   v.driverId = e.id
   e.vehicleId = v.id
   e.x = v.x
   e.y = v.y
+  e.z = 0
 }
 
 export function applyAction(s: GameState, e: Entity, a: string, now: number) {
@@ -189,6 +234,7 @@ export function respawn(s: GameState, e: Entity) {
   e.respawnAt = undefined
   e.x = cx + 0.5
   e.y = cx + 0.5
+  e.z = 0
   e.vehicleId = undefined
 }
 
@@ -196,6 +242,7 @@ export function step(s: GameState, inputs: Map<string, Input>, dt: number, now: 
   for (const [id, input] of inputs) {
     const e = s.entities.get(id)
     if (!e || e.kind !== 'player') continue
+    if (e.z == null) e.z = 0
     e.seq = input.seq
     if (e.attackCd > 0) e.attackCd -= dt
     if (e.dead) {

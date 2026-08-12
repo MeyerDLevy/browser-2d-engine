@@ -7,6 +7,7 @@ export type Entity = {
   kind: 'player' | 'item' | 'vehicle'
   x: number
   y: number
+  z: number
   facing: number
   name?: string
   health?: number

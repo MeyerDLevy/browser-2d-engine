@@ -4,7 +4,7 @@ const R = 26
 let cacheKey = ''
 let cache = new Set<string>()
 
-function walkRay(w: World, x0: number, y0: number, x1: number, y1: number, vis: Set<string>) {
+function walkRay(w: World, z: number, x0: number, y0: number, x1: number, y1: number, vis: Set<string>) {
   let x = x0
   let y = y0
   const dx = Math.abs(x1 - x0)
@@ -20,17 +20,11 @@ function walkRay(w: World, x0: number, y0: number, x1: number, y1: number, vis: 
     if (stepX && stepY) {
       const nx = x + sx
       const ny = y + sy
-      // corner cut: both adjacent edges into the diagonal cell must be clear
-      const blockH = edgeOpaque(edgeW(w, Math.max(x, nx), y)) || edgeOpaque(edgeN(w, nx, Math.max(y, ny)))
-      const blockV = edgeOpaque(edgeN(w, x, Math.max(y, ny))) || edgeOpaque(edgeW(w, Math.max(x, nx), ny))
-      if (blockH && blockV) {
-        if (edgeOpaque(edgeW(w, Math.max(x, nx), y))) vis.add(tileKey(nx, y))
-        if (edgeOpaque(edgeN(w, x, Math.max(y, ny)))) vis.add(tileKey(x, ny))
-        return
-      }
+      const blockH = edgeOpaque(edgeW(w, Math.max(x, nx), y, z)) || edgeOpaque(edgeN(w, nx, Math.max(y, ny), z))
+      const blockV = edgeOpaque(edgeN(w, x, Math.max(y, ny), z)) || edgeOpaque(edgeW(w, Math.max(x, nx), ny, z))
       if (blockH || blockV) {
-        if (edgeOpaque(edgeW(w, Math.max(x, nx), y))) vis.add(tileKey(nx, y))
-        if (edgeOpaque(edgeN(w, x, Math.max(y, ny)))) vis.add(tileKey(x, ny))
+        if (edgeOpaque(edgeW(w, Math.max(x, nx), y, z))) vis.add(tileKey(nx, y))
+        if (edgeOpaque(edgeN(w, x, Math.max(y, ny), z))) vis.add(tileKey(x, ny))
         return
       }
       err -= dy
@@ -40,7 +34,7 @@ function walkRay(w: World, x0: number, y0: number, x1: number, y1: number, vis: 
     } else if (stepX) {
       err -= dy
       const nx = x + sx
-      if (edgeOpaque(edgeW(w, Math.max(x, nx), y))) {
+      if (edgeOpaque(edgeW(w, Math.max(x, nx), y, z))) {
         vis.add(tileKey(nx, y))
         return
       }
@@ -48,7 +42,7 @@ function walkRay(w: World, x0: number, y0: number, x1: number, y1: number, vis: 
     } else if (stepY) {
       err += dx
       const ny = y + sy
-      if (edgeOpaque(edgeN(w, x, Math.max(y, ny)))) {
+      if (edgeOpaque(edgeN(w, x, Math.max(y, ny), z))) {
         vis.add(tileKey(x, ny))
         return
       }
@@ -58,21 +52,22 @@ function walkRay(w: World, x0: number, y0: number, x1: number, y1: number, vis: 
   }
 }
 
-export function visibleTiles(w: World, px: number, py: number) {
+export function visibleTiles(w: World, px: number, py: number, pz = 0) {
   const x = Math.floor(px)
   const y = Math.floor(py)
-  const k = w.seed + ':' + w.mapSize + ':' + w.blank + ':' +
+  const z = Math.floor(pz)
+  const k = w.seed + ':' + w.mapSize + ':' + w.blank + ':' + z + ':' +
     w.floors.size + ':' + w.edgesN.size + ':' + w.edgesW.size + ':' +
-    w.roofs.size + ':' + w.noRoof.size + ':' + x + ',' + y
+    w.roofs.size + ':' + w.noRoof.size + ':' + w.stairs.size + ':' + x + ',' + y
   if (k === cacheKey) return cache
   const vis = new Set<string>()
   for (let d = -R; d <= R; d++) {
-    walkRay(w, x, y, x + d, y - R, vis)
-    walkRay(w, x, y, x + d, y + R, vis)
+    walkRay(w, z, x, y, x + d, y - R, vis)
+    walkRay(w, z, x, y, x + d, y + R, vis)
   }
   for (let d = -R + 1; d <= R - 1; d++) {
-    walkRay(w, x, y, x - R, y + d, vis)
-    walkRay(w, x, y, x + R, y + d, vis)
+    walkRay(w, z, x, y, x - R, y + d, vis)
+    walkRay(w, z, x, y, x + R, y + d, vis)
   }
   cacheKey = k
   cache = vis

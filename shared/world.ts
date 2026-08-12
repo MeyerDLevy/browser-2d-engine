@@ -5,7 +5,10 @@ export const TICK_DT = 1 / TICK_HZ
 export const INTEREST = 48
 export const TILE_W = 64
 export const TILE_H = 32
+export const MAX_Z = 6
+export const ROOF_RISE = 12
 
+export const NONE = -1
 export const GRASS = 0
 export const DIRT = 1
 export const ROAD = 2
@@ -16,6 +19,11 @@ export const EDGE_NONE = 0
 export const EDGE_WALL = 1
 export const EDGE_DOOR = 2
 export const EDGE_WINDOW = 3
+
+export const DIR_N = 0
+export const DIR_E = 1
+export const DIR_S = 2
+export const DIR_W = 3
 
 export const TILE_COLOR = ['#3d7a3d', '#8b6914', '#5a5a5a', '#3a6ea5', '#9a7a4a']
 export const TILE_SIDE = ['#2d5a2d', '#6b5010', '#3e3e3e', '#2a5280', '#6a5030']
@@ -28,18 +36,21 @@ export type World = {
   floors: Map<string, number>
   edgesN: Map<string, number>
   edgesW: Map<string, number>
-  roofs: Set<string>
+  stairs: Map<string, number>
+  roofs: Map<string, number>
   noRoof: Set<string>
 }
 
 export type MapData = {
+  version?: number
   seed: number
   mapSize: number
   blank?: boolean
   floors: [string, number][]
   edgesN: [string, number][]
   edgesW: [string, number][]
-  roofs: string[]
+  stairs?: [string, number][]
+  roofs: [string, number][] | string[]
   noRoof?: string[]
 }
 
@@ -49,7 +60,8 @@ export function makeWorld(seed = 1, mapSize = MAP_SIZE, blank = false): World {
     floors: new Map(),
     edgesN: new Map(),
     edgesW: new Map(),
-    roofs: new Set(),
+    stairs: new Map(),
+    roofs: new Map(),
     noRoof: new Set(),
   }
 }
@@ -62,6 +74,10 @@ export function hash(x: number, y: number, seed: number) {
 
 export function tileKey(x: number, y: number) {
   return Math.floor(x) + ',' + Math.floor(y)
+}
+
+export function cellKey(x: number, y: number, z = 0) {
+  return Math.floor(x) + ',' + Math.floor(y) + ',' + Math.floor(z)
 }
 
 function inBuilding(bx: number, by: number) {
@@ -81,14 +97,15 @@ export function genFloor(x: number, y: number, seed: number, mapSize: number, bl
   return GRASS
 }
 
-export function getTile(w: World, x: number, y: number) {
-  const k = tileKey(x, y)
+export function getTile(w: World, x: number, y: number, z = 0) {
+  const k = cellKey(x, y, z)
   if (w.floors.has(k)) return w.floors.get(k)
+  if (z !== 0) return NONE
   return genFloor(Math.floor(x), Math.floor(y), w.seed, w.mapSize, w.blank)
 }
 
-export function setTile(w: World, x: number, y: number, t: number) {
-  w.floors.set(tileKey(x, y), t)
+export function setTile(w: World, x: number, y: number, t: number, z = 0) {
+  w.floors.set(cellKey(x, y, z), t)
 }
 
 function genEdgeN(x: number, y: number, seed: number, mapSize: number, blank: boolean) {
@@ -96,12 +113,10 @@ function genEdgeN(x: number, y: number, seed: number, mapSize: number, blank: bo
   const block = 20
   const bx = x % block
   const by = y % block
-  // north wall of building (by == 5): edgeN of tiles by=5
   if (bx >= 5 && bx <= 15 && by === 5) {
     if (bx === 8 || bx === 12) return EDGE_WINDOW
     return EDGE_WALL
   }
-  // south wall of building (by == 15): edgeN of tiles by=16
   if (bx >= 5 && bx <= 15 && by === 16) {
     if (bx === 10) return EDGE_DOOR
     if (bx === 7 || bx === 13) return EDGE_WINDOW
@@ -115,12 +130,10 @@ function genEdgeW(x: number, y: number, seed: number, mapSize: number, blank: bo
   const block = 20
   const bx = x % block
   const by = y % block
-  // west wall (bx == 5)
   if (by >= 5 && by <= 15 && bx === 5) {
     if (by === 8 || by === 12) return EDGE_WINDOW
     return EDGE_WALL
   }
-  // east wall (bx == 15): edgeW of tiles bx=16
   if (by >= 5 && by <= 15 && bx === 16) {
     if (by === 8 || by === 12) return EDGE_WINDOW
     return EDGE_WALL
@@ -128,43 +141,75 @@ function genEdgeW(x: number, y: number, seed: number, mapSize: number, blank: bo
   return EDGE_NONE
 }
 
-export function edgeN(w: World, x: number, y: number) {
+export function edgeN(w: World, x: number, y: number, z = 0) {
   const ix = Math.floor(x), iy = Math.floor(y)
-  const k = tileKey(ix, iy)
+  const k = cellKey(ix, iy, z)
   if (w.edgesN.has(k)) return w.edgesN.get(k)
+  if (z !== 0) return EDGE_NONE
   return genEdgeN(ix, iy, w.seed, w.mapSize, w.blank)
 }
 
-export function edgeW(w: World, x: number, y: number) {
+export function edgeW(w: World, x: number, y: number, z = 0) {
   const ix = Math.floor(x), iy = Math.floor(y)
-  const k = tileKey(ix, iy)
+  const k = cellKey(ix, iy, z)
   if (w.edgesW.has(k)) return w.edgesW.get(k)
+  if (z !== 0) return EDGE_NONE
   return genEdgeW(ix, iy, w.seed, w.mapSize, w.blank)
 }
 
-export function setEdgeN(w: World, x: number, y: number, e: number) {
-  w.edgesN.set(tileKey(x, y), e)
+export function setEdgeN(w: World, x: number, y: number, e: number, z = 0) {
+  w.edgesN.set(cellKey(x, y, z), e)
 }
 
-export function setEdgeW(w: World, x: number, y: number, e: number) {
-  w.edgesW.set(tileKey(x, y), e)
+export function setEdgeW(w: World, x: number, y: number, e: number, z = 0) {
+  w.edgesW.set(cellKey(x, y, z), e)
 }
 
-export function hasRoof(w: World, x: number, y: number) {
+export function getStairs(w: World, x: number, y: number, z = 0) {
+  const k = cellKey(x, y, z)
+  if (!w.stairs.has(k)) return null
+  return w.stairs.get(k)
+}
+
+export function setStairs(w: World, x: number, y: number, dir: number, z = 0) {
+  w.stairs.set(cellKey(x, y, z), dir)
+}
+
+export function clearStairs(w: World, x: number, y: number, z = 0) {
+  w.stairs.delete(cellKey(x, y, z))
+}
+
+// roof value: -1 = flat; else dir * 256 + step (step >= 0)
+export function packRoof(dir: number, step: number) {
+  if (step < 0) return -1
+  return (dir & 3) * 256 + (step & 255)
+}
+
+export function unpackRoof(v: number) {
+  if (v < 0) return { dir: 0, step: -1, flat: true }
+  return { dir: Math.floor(v / 256) & 3, step: v & 255, flat: false }
+}
+
+export function getRoof(w: World, x: number, y: number, z = 0) {
   const ix = Math.floor(x), iy = Math.floor(y)
-  const k = tileKey(ix, iy)
-  if (w.noRoof.has(k)) return false
-  if (w.roofs.has(k)) return true
-  if (w.blank) return false
+  const k = cellKey(ix, iy, z)
+  if (w.noRoof.has(k)) return null
+  if (w.roofs.has(k)) return unpackRoof(w.roofs.get(k))
+  if (z !== 0 || w.blank) return null
   const block = 20
   const bx = ix % block, by = iy % block
-  return inBuilding(bx, by)
+  if (inBuilding(bx, by)) return { dir: 0, step: -1, flat: true }
+  return null
 }
 
-export function setRoof(w: World, x: number, y: number, on: boolean) {
-  const k = tileKey(x, y)
+export function hasRoof(w: World, x: number, y: number, z = 0) {
+  return !!getRoof(w, x, y, z)
+}
+
+export function setRoof(w: World, x: number, y: number, on: boolean, z = 0, packed = -1) {
+  const k = cellKey(x, y, z)
   if (on) {
-    w.roofs.add(k)
+    w.roofs.set(k, packed)
     w.noRoof.delete(k)
   } else {
     w.roofs.delete(k)
@@ -172,9 +217,15 @@ export function setRoof(w: World, x: number, y: number, on: boolean) {
   }
 }
 
-export function isSolid(w: World, x: number, y: number) {
+export function isSolid(w: World, x: number, y: number, z = 0) {
   if (x < 0 || y < 0 || x >= w.mapSize || y >= w.mapSize) return true
-  return !!SOLID_FLOOR[getTile(w, x, y)]
+  const t = getTile(w, x, y, z)
+  if (t === NONE) return true
+  return !!SOLID_FLOOR[t]
+}
+
+export function hasFloor(w: World, x: number, y: number, z = 0) {
+  return getTile(w, x, y, z) !== NONE
 }
 
 export function edgeBlocks(e: number) {
@@ -185,15 +236,29 @@ export function edgeOpaque(e: number) {
   return e === EDGE_WALL
 }
 
+export function dirDelta(dir: number) {
+  if (dir === DIR_N) return { dx: 0, dy: -1 }
+  if (dir === DIR_E) return { dx: 1, dy: 0 }
+  if (dir === DIR_S) return { dx: 0, dy: 1 }
+  return { dx: -1, dy: 0 }
+}
+
+function migrateKey(k: string) {
+  if (k.split(',').length === 3) return k
+  return k + ',0'
+}
+
 export function serializeMap(w: World): MapData {
   return {
+    version: 2,
     seed: w.seed,
     mapSize: w.mapSize,
     blank: w.blank,
     floors: [...w.floors.entries()],
     edgesN: [...w.edgesN.entries()],
     edgesW: [...w.edgesW.entries()],
-    roofs: [...w.roofs],
+    stairs: [...w.stairs.entries()],
+    roofs: [...w.roofs.entries()],
     noRoof: [...w.noRoof],
   }
 }
@@ -202,11 +267,27 @@ export function applyMap(w: World, data: MapData) {
   w.seed = data.seed
   w.mapSize = data.mapSize
   w.blank = !!data.blank
-  w.floors = new Map(data.floors || [])
-  w.edgesN = new Map(data.edgesN || [])
-  w.edgesW = new Map(data.edgesW || [])
-  w.roofs = new Set(data.roofs || [])
-  w.noRoof = new Set(data.noRoof || [])
+  const v = data.version || 1
+  if (v < 2) {
+    w.floors = new Map((data.floors || []).map(([k, v]) => [migrateKey(k), v]))
+    w.edgesN = new Map((data.edgesN || []).map(([k, v]) => [migrateKey(k), v]))
+    w.edgesW = new Map((data.edgesW || []).map(([k, v]) => [migrateKey(k), v]))
+    w.stairs = new Map()
+    const roofs = data.roofs || []
+    if (roofs.length && typeof roofs[0] === 'string') {
+      w.roofs = new Map((roofs as string[]).map(k => [migrateKey(k), -1]))
+    } else {
+      w.roofs = new Map((roofs as [string, number][]).map(([k, v]) => [migrateKey(k), v]))
+    }
+    w.noRoof = new Set((data.noRoof || []).map(migrateKey))
+  } else {
+    w.floors = new Map(data.floors || [])
+    w.edgesN = new Map(data.edgesN || [])
+    w.edgesW = new Map(data.edgesW || [])
+    w.stairs = new Map(data.stairs || [])
+    w.roofs = new Map((data.roofs as [string, number][]) || [])
+    w.noRoof = new Set(data.noRoof || [])
+  }
 }
 
 export function worldFromMap(data: MapData): World {

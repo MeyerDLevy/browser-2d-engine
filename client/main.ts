@@ -233,14 +233,15 @@ function bootGame() {
       lastDraw.set(e.id, { x, y })
       draw.push({ e, x, y, moving })
     }
-    const vis = me ? visibleTiles(world, me.x, me.y) : null
-    render(ctx, world, cam, draw, meId, now, vis, me ? me.x : cam.x, me ? me.y : cam.y)
+    const myZ = me ? (me.z || 0) : 0
+    const vis = me ? visibleTiles(world, me.x, me.y, myZ) : null
+    render(ctx, world, cam, draw, meId, now, vis, me ? me.x : cam.x, me ? me.y : cam.y, null, myZ)
 
     if (me) {
       const inv = (me.inventory || []).map((it, i) => (i + 1) + '. ' + it.name).join('<br>')
       tl.innerHTML =
         (me.name || '') + '  hp ' + (me.health | 0) + '<br>' +
-        me.x.toFixed(1) + ', ' + me.y.toFixed(1) +
+        me.x.toFixed(1) + ', ' + me.y.toFixed(1) + '  z' + myZ +
         (me.vehicleId ? '<br>in car' : '')
       bl.innerHTML = '<b>inventory</b><br>' + (inv || '<i>empty</i>')
       deadEl.className = me.dead ? 'on' : ''
