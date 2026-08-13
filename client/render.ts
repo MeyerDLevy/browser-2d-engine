@@ -316,7 +316,7 @@ function drawRoofTile(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: n
 }
 
 export type DrawEnt = { e: Entity; x: number; y: number; moving?: boolean }
-export type PreviewEdge = { x: number; y: number; dir: 'N' | 'W'; kind: number; z?: number }
+export type PreviewEdge = { x: number; y: number; dir: 'N' | 'W'; kind: number; z?: number; color?: string }
 
 function drawPlayer(ctx: CanvasRenderingContext2D, d: DrawEnt, now: number, dim: number) {
   const { e, x, y } = d
@@ -471,8 +471,22 @@ export function render(
       const nw = iso(pe.x, pe.y); nw.y -= base
       const ne = iso(pe.x + 1, pe.y); ne.y -= base
       const sw = iso(pe.x, pe.y + 1); sw.y -= base
-      if (pe.dir === 'N') drawEdgeSeg(ctx, nw, ne, WALL_H, pe.kind || EDGE_WALL, 0.7)
-      else drawEdgeSeg(ctx, nw, sw, WALL_H, pe.kind || EDGE_WALL, 0.7)
+      const a = pe.dir === 'N' ? nw : nw
+      const b = pe.dir === 'N' ? ne : sw
+      if (pe.color) {
+        const h = WALL_H
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.lineTo(b.x, b.y - h)
+        ctx.lineTo(a.x, a.y - h)
+        ctx.closePath()
+        ctx.strokeStyle = pe.color
+        ctx.lineWidth = 3
+        ctx.stroke()
+      } else {
+        drawEdgeSeg(ctx, a, b, WALL_H, pe.kind || EDGE_WALL, 0.7)
+      }
     }
   }
 }
