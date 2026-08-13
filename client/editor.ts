@@ -4,7 +4,7 @@ import {
   DIR_N, DIR_E, DIR_S, DIR_W,
   makeWorld, serializeMap, worldFromMap,
   setTile, setEdgeN, setEdgeW, setRoof, setStairs, clearStairs, getStairs,
-  edgeN, edgeW, packRoof, resolveRoofCorners,
+  edgeN, edgeW, packRoof, packRoofCorner, unpackRoof, resolveRoofCorners, cellKey,
   type World, type MapData,
 } from '../shared/world.ts'
 import { render, resize, screenToWorld, type Cam, type PreviewEdge } from './render.ts'
@@ -13,7 +13,10 @@ import { clearVisionCache } from './vision.ts'
 type Tool = 'select' | 'wall' | 'door' | 'window' | 'floor' | 'roof' | 'slope' | 'stairs' | 'erase'
 type EdgeHit = { x: number; y: number; dir: 'N' | 'W' }
 type Side = 'N' | 'E' | 'S' | 'W'
-type Selection = { x: number; y: number; side: Side; kind: number }
+type Selection =
+  | { type: 'edge'; x: number; y: number; side: Side; edgeKind: number }
+  | { type: 'roof'; x: number; y: number; packed: number }
+  | { type: 'stairs'; x: number; y: number; dir: number }
 
 const FLOORS = [
   { id: GRASS, name: 'grass' },
@@ -120,7 +123,6 @@ export function startEditor() {
       b.className = tool === id ? 'on' : ''
       b.onclick = () => {
         tool = id
-        if (id !== 'select') selection = null
         floorsEl.style.display = id === 'floor' ? 'flex' : 'none'
         rebuildTools()
       }
@@ -220,19 +222,6 @@ export function startEditor() {
     return { x, y: y + 1, dir: 'N' }
   }
 
-  function nearestSide(tx: number, ty: number): { x: number; y: number; side: Side } {
-    const fx = tx - Math.floor(tx)
-    const fy = ty - Math.floor(ty)
-    const ix = Math.floor(tx)
-    const iy = Math.floor(ty)
-    const dN = fy, dS = 1 - fy, dW = fx, dE = 1 - fx
-    const m = Math.min(dN, dS, dW, dE)
-    if (m === dN) return { x: ix, y: iy, side: 'N' }
-    if (m === dS) return { x: ix, y: iy, side: 'S' }
-    if (m === dW) return { x: ix, y: iy, side: 'W' }
-    return { x: ix, y: iy, side: 'E' }
-  }
-
   function nearestEdge(tx: number, ty: number): EdgeHit {
     const fx = tx - Math.floor(tx)
     const fy = ty - Math.floor(ty)
@@ -303,13 +292,50 @@ export function startEditor() {
     return tiles
   }
 
+  function tryHit(tx: number, ty: number): Selection | null {
+    const ix = Math.floor(tx), iy = Math.floor(ty)
+    const fx = tx - ix, fy = ty - iy
+    const dN = fy, dS = 1 - fy, dW = fx, dE = 1 - fx
+    const m = Math.min(dN, dS, dW, dE)
+    let side: Side = 'N'
+    if (m === dS) side = 'S'
+    else if (m === dW) side = 'W'
+    else if (m === dE) side = 'E'
+    if (m < 0.28) {
+      const kind = getSide(ix, iy, side)
+      if (kind !== EDGE_NONE) return { type: 'edge', x: ix, y: iy, side, edgeKind: kind }
+    }
+    const stair = getStairs(world, ix, iy, editZ)
+    if (stair != null) return { type: 'stairs', x: ix, y: iy, dir: stair }
+    const k = cellKey(ix, iy, editZ)
+    if (world.roofs.has(k)) return { type: 'roof', x: ix, y: iy, packed: world.roofs.get(k) }
+    return null
+  }
+
   function rotateSelection() {
     if (!selection) return
-    const i = SIDES.indexOf(selection.side)
-    const next = SIDES[(i + 1) % 4]
-    setSide(selection.x, selection.y, selection.side, EDGE_NONE)
-    setSide(selection.x, selection.y, next, selection.kind)
-    selection = { ...selection, side: next }
+    if (selection.type === 'edge') {
+      const i = SIDES.indexOf(selection.side)
+      const next = SIDES[(i + 1) % 4]
+      setSide(selection.x, selection.y, selection.side, EDGE_NONE)
+      setSide(selection.x, selection.y, next, selection.edgeKind)
+      selection = { ...selection, side: next }
+    } else if (selection.type === 'stairs') {
+      const next = (selection.dir + 1) % 4
+      setStairs(world, selection.x, selection.y, next, editZ)
+      selection = { ...selection, dir: next }
+      stairDir = next
+      rebuildTools()
+    } else {
+      const u = unpackRoof(selection.packed)
+      if (!u.flat) {
+        const packed = u.corner
+          ? packRoofCorner((u.dir + 1) % 4, u.step)
+          : packRoof((u.dir + 1) % 4, u.step)
+        setRoof(world, selection.x, selection.y, true, editZ, packed)
+        selection = { ...selection, packed }
+      }
+    }
     clearVisionCache()
   }
 
@@ -346,18 +372,30 @@ export function startEditor() {
     clearVisionCache()
   }
 
+  function tileOutline(x: number, y: number, color: string): PreviewEdge {
+    return { x, y, z: editZ, color, tile: true }
+  }
+
   function buildPreview(): PreviewEdge[] {
     const out: PreviewEdge[] = []
     if (selection) {
-      const hit = sideToHit(selection.x, selection.y, selection.side)
-      out.push({ ...hit, kind: selection.kind, z: editZ, color: YELLOW })
+      if (selection.type === 'edge') {
+        const hit = sideToHit(selection.x, selection.y, selection.side)
+        out.push({ ...hit, kind: selection.edgeKind, z: editZ, color: YELLOW })
+      } else {
+        out.push(tileOutline(selection.x, selection.y, YELLOW))
+      }
     }
     if (copyDrag && selection) {
       const tiles = copyLine(selection.x, selection.y, copyDrag.x1, copyDrag.y1)
       for (const t of tiles) {
         if (t.x === selection.x && t.y === selection.y) continue
-        const hit = sideToHit(t.x, t.y, selection.side)
-        out.push({ ...hit, kind: selection.kind, z: editZ, color: BLUE })
+        if (selection.type === 'edge') {
+          const hit = sideToHit(t.x, t.y, selection.side)
+          out.push({ ...hit, kind: selection.edgeKind, z: editZ, color: BLUE })
+        } else {
+          out.push(tileOutline(t.x, t.y, BLUE))
+        }
       }
     }
     if (drag) {
@@ -401,26 +439,24 @@ export function startEditor() {
 
   canvas.onmousedown = ev => {
     const wpos = screenToWorld(cam, ev.clientX, ev.clientY, canvas, editZ)
-    if (tool === 'select') {
-      const hit = nearestSide(wpos.x, wpos.y)
-      const kind = getSide(hit.x, hit.y, hit.side)
-      if (kind !== EDGE_NONE) {
-        selection = { x: hit.x, y: hit.y, side: hit.side, kind }
+    if (tool !== 'erase') {
+      const hit = tryHit(wpos.x, wpos.y)
+      if (hit) {
+        selection = hit
         copyDrag = { x1: hit.x, y1: hit.y }
-      } else {
-        selection = null
-        copyDrag = null
+        return
       }
-    } else if (tool === 'wall' || tool === 'door' || tool === 'window') {
-      selection = null
+    }
+    selection = null
+    copyDrag = null
+    if (tool === 'select') return
+    if (tool === 'wall' || tool === 'door' || tool === 'window') {
       const e = nearestEdge(wpos.x, wpos.y)
       drag = { start: e, cur: e }
     } else if (tool === 'slope') {
-      selection = null
       const ix = Math.floor(wpos.x), iy = Math.floor(wpos.y)
       slopeDrag = { x0: ix, y0: iy, x1: ix, y1: iy }
     } else {
-      selection = null
       painting = true
       paintAt(wpos.x, wpos.y)
     }
@@ -448,8 +484,15 @@ export function startEditor() {
       const tiles = copyLine(selection.x, selection.y, copyDrag.x1, copyDrag.y1)
       for (const t of tiles) {
         if (t.x === selection.x && t.y === selection.y) continue
-        setSide(t.x, t.y, selection.side, selection.kind)
+        if (selection.type === 'edge') setSide(t.x, t.y, selection.side, selection.edgeKind)
+        else if (selection.type === 'stairs') {
+          setStairs(world, t.x, t.y, selection.dir, editZ)
+          setTile(world, t.x, t.y, WOOD, editZ)
+        } else {
+          setRoof(world, t.x, t.y, true, editZ, selection.packed)
+        }
       }
+      if (selection.type === 'roof') resolveRoofCorners(world, editZ)
       clearVisionCache()
       copyDrag = null
     }
@@ -484,6 +527,6 @@ export function startEditor() {
     requestAnimationFrame(frame)
   }
   requestAnimationFrame(frame)
-  setMsg('select · click edge · R rotate · drag copy · [ ] level · wasd pan')
+  setMsg('click any placed object to select · R rotate · drag copy · [ ] level · wasd pan')
   ;(window as any).G = { world, cam, get z() { return editZ }, get sel() { return selection } }
 }

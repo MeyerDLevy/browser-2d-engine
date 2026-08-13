@@ -316,7 +316,15 @@ function drawRoofTile(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: n
 }
 
 export type DrawEnt = { e: Entity; x: number; y: number; moving?: boolean }
-export type PreviewEdge = { x: number; y: number; dir: 'N' | 'W'; kind: number; z?: number; color?: string }
+export type PreviewEdge = {
+  x: number
+  y: number
+  dir?: 'N' | 'W'
+  kind?: number
+  z?: number
+  color?: string
+  tile?: boolean
+}
 
 function drawPlayer(ctx: CanvasRenderingContext2D, d: DrawEnt, now: number, dim: number) {
   const { e, x, y } = d
@@ -468,10 +476,18 @@ export function render(
     for (const pe of preview) {
       const pz = pe.z || 0
       const base = levelY(pz)
+      if (pe.tile) {
+        const p = iso(pe.x, pe.y)
+        diamond(ctx, p.x, p.y - base - WALL_H)
+        ctx.strokeStyle = pe.color || '#ffdd00'
+        ctx.lineWidth = 3
+        ctx.stroke()
+        continue
+      }
       const nw = iso(pe.x, pe.y); nw.y -= base
       const ne = iso(pe.x + 1, pe.y); ne.y -= base
       const sw = iso(pe.x, pe.y + 1); sw.y -= base
-      const a = pe.dir === 'N' ? nw : nw
+      const a = nw
       const b = pe.dir === 'N' ? ne : sw
       if (pe.color) {
         const h = WALL_H
