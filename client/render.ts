@@ -28,6 +28,25 @@ heroImg.src = '/assets/hero.png'
 const headImg = new Image()
 headImg.src = '/assets/head.png'
 
+// Kenney Furniture Kit sprites, one per type per rotation (0=NE 1=SE 2=SW 3=NW facing)
+const objImgs = OBJ_TYPES.map(o => [0, 1, 2, 3].map(r => {
+  const im = new Image()
+  im.src = `/assets/objects/${o.id}_${r}.png`
+  return im
+}))
+// trimmed sprites need per-type fit: s scales source px, dy nudges down on screen
+// SQUASH flattens Kenney's steeper projection (diamond ratio 0.59) to ours (0.5)
+const OBJ_SQUASH = 0.85
+const OBJ_TUNE: Record<string, { s: number; dy: number }> = {
+  fridge: { s: 0.6, dy: 6 },
+  crate: { s: 0.9, dy: 2 },
+  chair: { s: 0.8, dy: 3 },
+  toilet: { s: 0.6, dy: 2 },
+  couch: { s: 0.88, dy: 4 },
+  bed: { s: 0.58, dy: 3 },
+  table: { s: 1.0, dy: 2 },
+}
+
 const animClock = new Map<string, { anim: string; t0: number }>()
 
 function ready(img: HTMLImageElement) {
@@ -328,8 +347,21 @@ export function drawObjectBox(ctx: CanvasRenderingContext2D, ax: number, ay: num
   const fp = objFootprint(ax, ay, typeIdx, rot)
   let mx = ax + 1, my = ay + 1
   for (const t of fp) { mx = Math.max(mx, t.x + 1); my = Math.max(my, t.y + 1) }
-  const inset = 0.12
   const base = levelY(z)
+  const img = objImgs[typeIdx][rot]
+  if (ready(img)) {
+    const tune = OBJ_TUNE[spec.id]
+    const c = iso((ax + mx) / 2, (ay + my) / 2)
+    const south = iso(mx, my)
+    const dw = img.naturalWidth * tune.s
+    const dh = img.naturalHeight * tune.s * OBJ_SQUASH
+    const prev = ctx.globalAlpha
+    ctx.globalAlpha = alpha
+    ctx.drawImage(img, c.x - dw / 2, south.y - base - dh + tune.dy, dw, dh)
+    ctx.globalAlpha = prev
+    return
+  }
+  const inset = 0.12
   const h = spec.height
   const nw = iso(ax + inset, ay + inset); nw.y -= base
   const ne = iso(mx - inset, ay + inset); ne.y -= base

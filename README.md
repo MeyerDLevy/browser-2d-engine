@@ -28,3 +28,4 @@ Live: https://browser-2d-engine-production.up.railway.app
 ## art
 
 Hero sprites: Clint Bellanger / Flare, CC-BY-SA 3.0.
+Furniture sprites: Kenney Furniture Kit (kenney.nl), CC0.

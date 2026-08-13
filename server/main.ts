@@ -178,7 +178,7 @@ const httpServer = createServer(async (req, res) => {
   else if (p === '/client.js.map') file = 'dist/client.js.map'
   else if (p.startsWith('/assets/')) {
     const name = p.slice('/assets/'.length)
-    if (/^[a-zA-Z0-9._-]+$/.test(name)) file = 'client/assets/' + name
+    if (/^[a-zA-Z0-9._-]+(\/[a-zA-Z0-9._-]+)?$/.test(name)) file = 'client/assets/' + name
   }
   if (!file || !existsSync(file)) { res.statusCode = 404; res.end(); return }
   const ext = file.slice(file.lastIndexOf('.'))
