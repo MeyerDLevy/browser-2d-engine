@@ -1,6 +1,6 @@
 import {
   INTEREST, MAX_Z, getTile, hash, isSolid, edgeBlocks, edgeN, edgeW,
-  getStairs, dirDelta, makeWorld, ROAD,
+  getStairs, dirDelta, makeWorld, ROAD, objectBlocks,
 } from './world.ts'
 import {
   ENTER_RANGE, ITEM_TYPES, INV_MAX, MELEE_DMG, MELEE_RANGE, PICKUP_RANGE,
@@ -71,9 +71,13 @@ export function spawnPlayer(s: GameState, name: string) {
   return e
 }
 
+function solidAt(w: World, x: number, y: number, z: number) {
+  return isSolid(w, x, y, z) || objectBlocks(w, x, y, z)
+}
+
 function floorBlocked(w: World, x: number, y: number, z: number, r: number) {
-  return isSolid(w, x - r, y - r, z) || isSolid(w, x + r, y - r, z) ||
-    isSolid(w, x - r, y + r, z) || isSolid(w, x + r, y + r, z)
+  return solidAt(w, x - r, y - r, z) || solidAt(w, x + r, y - r, z) ||
+    solidAt(w, x - r, y + r, z) || solidAt(w, x + r, y + r, z)
 }
 
 function crossX(w: World, x0: number, x1: number, y: number, z: number, r: number) {

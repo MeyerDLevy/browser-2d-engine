@@ -38,6 +38,17 @@ export const TILE_COLOR = ['#3d7a3d', '#8b6914', '#5a5a5a', '#3a6ea5', '#9a7a4a'
 export const TILE_SIDE = ['#2d5a2d', '#6b5010', '#3e3e3e', '#2a5280', '#6a5030']
 export const SOLID_FLOOR = { [WATER]: true }
 
+// tile objects (furniture); w/h are footprint at rot 0, height is draw height in px
+export const OBJ_TYPES = [
+  { id: 'fridge', w: 1, h: 1, solid: true, color: '#c8d0d4', height: 36 },
+  { id: 'crate', w: 1, h: 1, solid: true, color: '#8a6a40', height: 16 },
+  { id: 'chair', w: 1, h: 1, solid: false, color: '#7a5030', height: 14 },
+  { id: 'toilet', w: 1, h: 1, solid: false, color: '#e8e8e0', height: 14 },
+  { id: 'couch', w: 2, h: 1, solid: true, color: '#606a30', height: 18 },
+  { id: 'bed', w: 2, h: 1, solid: true, color: '#90b0c0', height: 12 },
+  { id: 'table', w: 2, h: 1, solid: true, color: '#9a7a4a', height: 22 },
+]
+
 export type World = {
   seed: number
   mapSize: number
@@ -48,6 +59,7 @@ export type World = {
   stairs: Map<string, number>
   roofs: Map<string, number>
   noRoof: Set<string>
+  objects: Map<string, number>
 }
 
 export type MapData = {
@@ -61,6 +73,7 @@ export type MapData = {
   stairs?: [string, number][]
   roofs: [string, number][] | string[]
   noRoof?: string[]
+  objects?: [string, number][]
 }
 
 export function makeWorld(seed = 1, mapSize = MAP_SIZE, blank = false): World {
@@ -72,6 +85,7 @@ export function makeWorld(seed = 1, mapSize = MAP_SIZE, blank = false): World {
     stairs: new Map(),
     roofs: new Map(),
     noRoof: new Set(),
+    objects: new Map(),
   }
 }
 
@@ -307,6 +321,57 @@ export function dirDelta(dir: number) {
   return { dx: -1, dy: 0 }
 }
 
+// objects: anchor tile holds typeIndex * 8 + rot
+export function packObj(typeIdx: number, rot: number) {
+  return typeIdx * 8 + (rot & 3)
+}
+
+export function unpackObj(v: number) {
+  return { typeIdx: Math.floor(v / 8), rot: v & 3 }
+}
+
+export function objFootprint(x: number, y: number, typeIdx: number, rot: number) {
+  const spec = OBJ_TYPES[typeIdx]
+  const w = rot % 2 === 0 ? spec.w : spec.h
+  const h = rot % 2 === 0 ? spec.h : spec.w
+  const out: { x: number; y: number }[] = []
+  for (let dx = 0; dx < w; dx++) for (let dy = 0; dy < h; dy++) out.push({ x: x + dx, y: y + dy })
+  return out
+}
+
+export function getObject(w: World, x: number, y: number, z = 0) {
+  const v = w.objects.get(cellKey(x, y, z))
+  if (v == null) return null
+  return unpackObj(v)
+}
+
+export function setObject(w: World, x: number, y: number, typeIdx: number, rot: number, z = 0) {
+  w.objects.set(cellKey(x, y, z), packObj(typeIdx, rot))
+}
+
+export function clearObject(w: World, x: number, y: number, z = 0) {
+  w.objects.delete(cellKey(x, y, z))
+}
+
+/** Find the object whose footprint covers (x,y); returns anchor + unpacked value. */
+export function objectAt(w: World, x: number, y: number, z = 0) {
+  const ix = Math.floor(x), iy = Math.floor(y)
+  for (let dx = 0; dx > -2; dx--) {
+    for (let dy = 0; dy > -2; dy--) {
+      const o = getObject(w, ix + dx, iy + dy, z)
+      if (!o) continue
+      const fp = objFootprint(ix + dx, iy + dy, o.typeIdx, o.rot)
+      if (fp.some(t => t.x === ix && t.y === iy)) return { ax: ix + dx, ay: iy + dy, ...o }
+    }
+  }
+  return null
+}
+
+export function objectBlocks(w: World, x: number, y: number, z = 0) {
+  const o = objectAt(w, x, y, z)
+  return !!o && OBJ_TYPES[o.typeIdx].solid
+}
+
 function migrateKey(k: string) {
   if (k.split(',').length === 3) return k
   return k + ',0'
@@ -314,7 +379,7 @@ function migrateKey(k: string) {
 
 export function serializeMap(w: World): MapData {
   return {
-    version: 2,
+    version: 3,
     seed: w.seed,
     mapSize: w.mapSize,
     blank: w.blank,
@@ -324,6 +389,7 @@ export function serializeMap(w: World): MapData {
     stairs: [...w.stairs.entries()],
     roofs: [...w.roofs.entries()],
     noRoof: [...w.noRoof],
+    objects: [...w.objects.entries()],
   }
 }
 
@@ -344,6 +410,7 @@ export function applyMap(w: World, data: MapData) {
       w.roofs = new Map((roofs as [string, number][]).map(([k, v]) => [migrateKey(k), v]))
     }
     w.noRoof = new Set((data.noRoof || []).map(migrateKey))
+    w.objects = new Map()
   } else {
     w.floors = new Map(data.floors || [])
     w.edgesN = new Map(data.edgesN || [])
@@ -351,6 +418,7 @@ export function applyMap(w: World, data: MapData) {
     w.stairs = new Map(data.stairs || [])
     w.roofs = new Map((data.roofs as [string, number][]) || [])
     w.noRoof = new Set(data.noRoof || [])
+    w.objects = new Map(data.objects || [])
   }
 }
 

@@ -1,8 +1,9 @@
 import {
   EDGE_DOOR, EDGE_NONE, EDGE_WALL, EDGE_WINDOW,
   NONE, TILE_COLOR, TILE_H, TILE_W, ROOF_RISE, DIR_N, DIR_E, DIR_S, DIR_W,
-  CORNER_NE, CORNER_SE, CORNER_SW, CORNER_NW,
-  edgeN, edgeW, getTile, getRoof, getStairs, iso, screenToTile, type World,
+  CORNER_NE, CORNER_SE, CORNER_SW, CORNER_NW, OBJ_TYPES,
+  edgeN, edgeW, getTile, getRoof, getStairs, unpackRoof, unpackObj,
+  objectAt, objFootprint, iso, screenToTile, type World,
 } from '../shared/world.ts'
 import { ITEM_COLOR, type Entity } from '../shared/entities.ts'
 
@@ -229,12 +230,9 @@ function drawEdges(
   if (ww) drawEdgeSeg(ctx, nw, sw, h, ww, alpha)
 }
 
-function drawStairs(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: number, z: number, seen: boolean, dim: number) {
-  const dir = getStairs(w, tx, ty, z)
-  if (dir == null || !seen) return
-  const p = iso(tx, ty)
+function drawStairsAt(ctx: CanvasRenderingContext2D, tx: number, ty: number, z: number, dir: number, alpha: number) {
   const base = levelY(z)
-  ctx.globalAlpha = dim
+  ctx.globalAlpha = alpha
   const steps = 4
   for (let i = 0; i < steps; i++) {
     const t = (i + 0.5) / steps
@@ -251,12 +249,15 @@ function drawStairs(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: num
   ctx.globalAlpha = 1
 }
 
-function drawRoofTile(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: number, z: number, underRoof: boolean, dim: number) {
-  if (underRoof) return
-  const roof = getRoof(w, tx, ty, z)
-  if (!roof) return
+function drawStairs(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: number, z: number, seen: boolean, dim: number) {
+  const dir = getStairs(w, tx, ty, z)
+  if (dir == null || !seen) return
+  drawStairsAt(ctx, tx, ty, z, dir, dim)
+}
+
+function drawRoofShape(ctx: CanvasRenderingContext2D, tx: number, ty: number, z: number, roof: ReturnType<typeof unpackRoof>, alpha: number) {
   const base = levelY(z)
-  ctx.globalAlpha = dim
+  ctx.globalAlpha = alpha
   if (roof.flat) {
     const p = iso(tx, ty)
     diamond(ctx, p.x, p.y - base - WALL_H)
@@ -274,7 +275,6 @@ function drawRoofTile(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: n
     const sw = iso(tx, ty + 1)
     let hNW = h1, hNE = h1, hSE = h1, hSW = h1
     if (roof.corner) {
-      // outer hip: low at eave corner, high at opposite (ridge)
       if (roof.dir === CORNER_SW) { hSW = h0; hSE = h0; hNW = h0; hNE = h1 }
       else if (roof.dir === CORNER_SE) { hSE = h0; hSW = h0; hNE = h0; hNW = h1 }
       else if (roof.dir === CORNER_NW) { hNW = h0; hNE = h0; hSW = h0; hSE = h1 }
@@ -315,6 +315,70 @@ function drawRoofTile(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: n
   ctx.globalAlpha = 1
 }
 
+function drawRoofTile(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: number, z: number, underRoof: boolean, dim: number) {
+  if (underRoof) return
+  const roof = getRoof(w, tx, ty, z)
+  if (!roof) return
+  drawRoofShape(ctx, tx, ty, z, roof, dim)
+}
+
+export function drawObjectBox(ctx: CanvasRenderingContext2D, ax: number, ay: number, z: number, typeIdx: number, rot: number, alpha: number) {
+  const spec = OBJ_TYPES[typeIdx]
+  if (!spec) return
+  const fp = objFootprint(ax, ay, typeIdx, rot)
+  let mx = ax + 1, my = ay + 1
+  for (const t of fp) { mx = Math.max(mx, t.x + 1); my = Math.max(my, t.y + 1) }
+  const inset = 0.12
+  const base = levelY(z)
+  const h = spec.height
+  const nw = iso(ax + inset, ay + inset); nw.y -= base
+  const ne = iso(mx - inset, ay + inset); ne.y -= base
+  const se = iso(mx - inset, my - inset); se.y -= base
+  const sw = iso(ax + inset, my - inset); sw.y -= base
+  const prev = ctx.globalAlpha
+  ctx.globalAlpha = alpha
+  const face = (a: { x: number; y: number }, b: { x: number; y: number }, shade: string) => {
+    ctx.beginPath()
+    ctx.moveTo(a.x, a.y)
+    ctx.lineTo(b.x, b.y)
+    ctx.lineTo(b.x, b.y - h)
+    ctx.lineTo(a.x, a.y - h)
+    ctx.closePath()
+    ctx.fillStyle = spec.color
+    ctx.fill()
+    ctx.fillStyle = shade
+    ctx.fill()
+  }
+  face(sw, se, '#00000044')
+  face(se, ne, '#00000066')
+  ctx.beginPath()
+  ctx.moveTo(nw.x, nw.y - h)
+  ctx.lineTo(ne.x, ne.y - h)
+  ctx.lineTo(se.x, se.y - h)
+  ctx.lineTo(sw.x, sw.y - h)
+  ctx.closePath()
+  ctx.fillStyle = spec.color
+  ctx.fill()
+  ctx.strokeStyle = '#00000055'
+  ctx.lineWidth = 0.6
+  ctx.stroke()
+  ctx.globalAlpha = prev
+}
+
+function drawObjectTile(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: number, z: number, seen: boolean, dim: number) {
+  if (!seen) return
+  const o = objectAt(w, tx, ty, z)
+  if (!o) return
+  // draw once, when the sweep reaches the footprint's deepest tile
+  const fp = objFootprint(o.ax, o.ay, o.typeIdx, o.rot)
+  let best = fp[0]
+  for (const t of fp) {
+    if (t.x + t.y > best.x + best.y || (t.x + t.y === best.x + best.y && t.x > best.x)) best = t
+  }
+  if (tx !== best.x || ty !== best.y) return
+  drawObjectBox(ctx, o.ax, o.ay, z, o.typeIdx, o.rot, dim)
+}
+
 export type DrawEnt = { e: Entity; x: number; y: number; moving?: boolean }
 export type PreviewEdge = {
   x: number
@@ -325,6 +389,11 @@ export type PreviewEdge = {
   color?: string
   tile?: boolean
   ground?: boolean
+  ghost?: boolean
+  floor?: number
+  stairs?: number
+  roof?: number
+  obj?: number
 }
 
 function drawPlayer(ctx: CanvasRenderingContext2D, d: DrawEnt, now: number, dim: number) {
@@ -446,6 +515,7 @@ export function render(
         if (ty < minY || ty > maxY) continue
         const seen = !useVis || useVis.has(tx + ',' + ty)
         drawFloor(ctx, world, tx, ty, lz, seen || lz < myZ, dim)
+        drawObjectTile(ctx, world, tx, ty, lz, seen || lz < myZ, dim)
         drawEdges(ctx, world, tx, ty, lz, seen || lz < myZ, ix, iy, dim)
         drawStairs(ctx, world, tx, ty, lz, seen || lz < myZ, dim)
       }
@@ -477,6 +547,28 @@ export function render(
     for (const pe of preview) {
       const pz = pe.z || 0
       const base = levelY(pz)
+      if (pe.ghost && pe.floor != null) {
+        const p = iso(pe.x, pe.y)
+        diamond(ctx, p.x, p.y - base)
+        ctx.globalAlpha = 0.3
+        ctx.fillStyle = TILE_COLOR[pe.floor] || '#444'
+        ctx.fill()
+        ctx.globalAlpha = 1
+        continue
+      }
+      if (pe.ghost && pe.roof != null) {
+        drawRoofShape(ctx, pe.x, pe.y, pz, unpackRoof(pe.roof), 0.3)
+        continue
+      }
+      if (pe.ghost && pe.stairs != null) {
+        drawStairsAt(ctx, pe.x, pe.y, pz, pe.stairs, 0.3)
+        continue
+      }
+      if (pe.ghost && pe.obj != null) {
+        const o = unpackObj(pe.obj)
+        drawObjectBox(ctx, pe.x, pe.y, pz, o.typeIdx, o.rot, 0.3)
+        continue
+      }
       if (pe.tile) {
         const p = iso(pe.x, pe.y)
         diamond(ctx, p.x, p.y - base - (pe.ground ? 0 : WALL_H))
@@ -490,7 +582,9 @@ export function render(
       const sw = iso(pe.x, pe.y + 1); sw.y -= base
       const a = nw
       const b = pe.dir === 'N' ? ne : sw
-      if (pe.color) {
+      if (pe.ghost) {
+        drawEdgeSeg(ctx, a, b, WALL_H, pe.kind || EDGE_WALL, 0.3)
+      } else if (pe.color) {
         const h = WALL_H
         ctx.beginPath()
         ctx.moveTo(a.x, a.y)
@@ -502,7 +596,7 @@ export function render(
         ctx.lineWidth = 3
         ctx.stroke()
       } else {
-        drawEdgeSeg(ctx, a, b, WALL_H, pe.kind || EDGE_WALL, 0.7)
+        drawEdgeSeg(ctx, a, b, WALL_H, pe.kind || EDGE_WALL, 0.3)
       }
     }
   }
