@@ -324,6 +324,7 @@ export type PreviewEdge = {
   z?: number
   color?: string
   tile?: boolean
+  ground?: boolean
 }
 
 function drawPlayer(ctx: CanvasRenderingContext2D, d: DrawEnt, now: number, dim: number) {
@@ -478,7 +479,7 @@ export function render(
       const base = levelY(pz)
       if (pe.tile) {
         const p = iso(pe.x, pe.y)
-        diamond(ctx, p.x, p.y - base - WALL_H)
+        diamond(ctx, p.x, p.y - base - (pe.ground ? 0 : WALL_H))
         ctx.strokeStyle = pe.color || '#ffdd00'
         ctx.lineWidth = 3
         ctx.stroke()

@@ -377,8 +377,8 @@ export function startEditor() {
     clearVisionCache()
   }
 
-  function tileOutline(x: number, y: number, color: string): PreviewEdge {
-    return { x, y, z: editZ, color, tile: true }
+  function tileOutline(x: number, y: number, color: string, ground = false): PreviewEdge {
+    return { x, y, z: editZ, color, tile: true, ground }
   }
 
   function sameSel(a: Selection, b: Selection) {
@@ -415,7 +415,7 @@ export function startEditor() {
 
   function buildPreview(): PreviewEdge[] {
     const out: PreviewEdge[] = []
-    if (hoverTile) out.push(tileOutline(hoverTile.x, hoverTile.y, PALE))
+    if (hoverTile) out.push(tileOutline(hoverTile.x, hoverTile.y, PALE, tool === 'floor'))
     if (hoverEdge) out.push({ ...hoverEdge, kind: EDGE_WALL, z: editZ, color: ORANGE })
     if (hover && !sameSel(hover, selection)) out.push(selHighlight(hover, PALE))
     if (selection) out.push(selHighlight(selection, YELLOW))
