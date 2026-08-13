@@ -30,6 +30,7 @@ const DIR_NAMES = ['N', 'E', 'S', 'W']
 const SIDES: Side[] = ['N', 'E', 'S', 'W']
 const YELLOW = '#ffdd00'
 const PALE = '#fff4a8'
+const ORANGE = '#ff7a20'
 const BLUE = '#44aaff'
 
 export function startEditor() {
@@ -106,6 +107,8 @@ export function startEditor() {
   let painting = false
   let selection: Selection = null
   let hover: Selection = null
+  let hoverTile: { x: number; y: number } = null
+  let hoverEdge: EdgeHit = null
   let preview: PreviewEdge[] = []
 
   function setMsg(s: string) { msgEl.textContent = s }
@@ -392,8 +395,28 @@ export function startEditor() {
     return tileOutline(s.x, s.y, color)
   }
 
+  function clearHover() {
+    hover = null
+    hoverTile = null
+    hoverEdge = null
+  }
+
+  function updateHover(tx: number, ty: number) {
+    if (tool === 'erase') { clearHover(); return }
+    hover = tryHit(tx, ty)
+    hoverTile = null
+    hoverEdge = null
+    if (hover || tool === 'select') return
+    hoverTile = { x: Math.floor(tx), y: Math.floor(ty) }
+    if (tool === 'wall' || tool === 'door' || tool === 'window') {
+      hoverEdge = nearestEdge(tx, ty)
+    }
+  }
+
   function buildPreview(): PreviewEdge[] {
     const out: PreviewEdge[] = []
+    if (hoverTile) out.push(tileOutline(hoverTile.x, hoverTile.y, PALE))
+    if (hoverEdge) out.push({ ...hoverEdge, kind: EDGE_WALL, z: editZ, color: ORANGE })
     if (hover && !sameSel(hover, selection)) out.push(selHighlight(hover, PALE))
     if (selection) out.push(selHighlight(selection, YELLOW))
     if (copyDrag && selection) {
@@ -476,23 +499,23 @@ export function startEditor() {
     if (copyDrag && selection) {
       copyDrag.x1 = Math.floor(wpos.x)
       copyDrag.y1 = Math.floor(wpos.y)
-      hover = null
+      clearHover()
     } else if (drag) {
       const e = nearestEdge(wpos.x, wpos.y)
       if (drag.start.dir === 'N') e.y = drag.start.y
       else e.x = drag.start.x
       e.dir = drag.start.dir
       drag.cur = e
-      hover = null
+      clearHover()
     } else if (slopeDrag) {
       slopeDrag.x1 = Math.floor(wpos.x)
       slopeDrag.y1 = Math.floor(wpos.y)
-      hover = null
+      clearHover()
     } else if (painting) {
       paintAt(wpos.x, wpos.y)
-      hover = null
+      clearHover()
     } else {
-      hover = tool === 'erase' ? null : tryHit(wpos.x, wpos.y)
+      updateHover(wpos.x, wpos.y)
     }
   }
   canvas.onmouseup = () => {
@@ -527,7 +550,7 @@ export function startEditor() {
     }
     painting = false
   }
-  canvas.onmouseleave = () => { painting = false; hover = null }
+  canvas.onmouseleave = () => { painting = false; clearHover() }
 
   let last = performance.now()
   function frame(now: number) {
