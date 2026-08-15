@@ -1,6 +1,6 @@
 import * as esbuild from 'esbuild'
 import { createServer } from 'http'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, type Dirent } from 'fs'
 import { loadCatalog, saveCatalog, cropCell } from './materials.ts'
 import { storeGet, storePut } from './bucket.ts'
 import { join } from 'path'
@@ -59,6 +59,17 @@ function loadMap(name: string): MapData {
 
 function listMaps() {
   return readdirSync(MAPS_DIR).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5))
+}
+
+function listProjectPngs(dir = 'client/assets', prefix = '') {
+  const out: string[] = []
+  if (!existsSync(dir)) return out
+  for (const ent of readdirSync(dir, { withFileTypes: true }) as Dirent[]) {
+    if (ent.name.startsWith('_') || ent.name.startsWith('.')) continue
+    if (ent.isDirectory()) out.push(...listProjectPngs(join(dir, ent.name), prefix + ent.name + '/'))
+    else if (ent.name.endsWith('.png')) out.push(prefix + ent.name)
+  }
+  return out
 }
 
 function getLobby(id: string, mapName = '') {
@@ -179,6 +190,11 @@ const httpServer = createServer(async (req, res) => {
     writeFileSync(mapPath(name), JSON.stringify(data))
     res.setHeader('Content-Type', 'application/json')
     res.end(JSON.stringify({ ok: true, name }))
+    return
+  }
+  if (p === '/materials/local-pngs' && req.method === 'GET') {
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify(listProjectPngs()))
     return
   }
   if (p === '/materials' && req.method === 'GET') {

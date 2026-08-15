@@ -73,6 +73,13 @@ export function startMaterials() {
     await fetch('/materials', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cat) })
   }
 
+  async function addPng(name: string, buf: ArrayBuffer) {
+    const id = name.replace(/\.png$/i, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').slice(0, 32)
+    await fetch('/materials/tilemaps/' + id, { method: 'POST', body: buf })
+    await load()
+    pickMap(cat.tilemaps.find(x => x.id === id))
+  }
+
   function cellKey(c: number, r: number) { return c + ',' + r }
 
   function grid() {
@@ -104,15 +111,28 @@ export function startMaterials() {
         row.onclick = () => pickMap(t)
         listEl.appendChild(row)
       }
-      addEl.innerHTML = `<input type="file" accept="image/png" id="mat-file">`
+      addEl.innerHTML = `
+        <div style="color:#888;margin-bottom:6px">from disk</div>
+        <input type="file" accept="image/png" id="mat-file">
+        <div style="color:#888;margin:8px 0 6px">from project</div>
+        <select id="mat-local" style="width:100%;font:inherit;background:#141310;color:#eee;border:1px solid #444;padding:5px"></select>
+        <button id="mat-local-add" style="margin-top:6px;font:inherit;background:#2a2824;color:#eee;border:1px solid #555;padding:5px 8px">add selected</button>
+      `
       const inp = addEl.querySelector('#mat-file') as HTMLInputElement
       inp.onchange = async () => {
         const f = inp.files[0]
         if (!f) return
-        const id = f.name.replace(/\.png$/i, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').slice(0, 32)
-        await fetch('/materials/tilemaps/' + id, { method: 'POST', body: await f.arrayBuffer() })
-        await load()
-        pickMap(cat.tilemaps.find(x => x.id === id))
+        await addPng(f.name, await f.arrayBuffer())
+      }
+      const sel = addEl.querySelector('#mat-local') as HTMLSelectElement
+      fetch('/materials/local-pngs').then(r => r.json()).then((paths: string[]) => {
+        sel.innerHTML = paths.map(p => `<option value="${p}">${p}</option>`).join('')
+      })
+      ;(addEl.querySelector('#mat-local-add') as HTMLButtonElement).onclick = async () => {
+        const path = sel.value
+        if (!path) return
+        const buf = await (await fetch('/assets/' + path)).arrayBuffer()
+        await addPng(path.split('/').pop(), buf)
       }
     } else {
       for (const t of cat.tiles) {
