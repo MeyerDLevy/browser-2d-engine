@@ -4,6 +4,7 @@ import {
   CORNER_NE, CORNER_SE, CORNER_SW, CORNER_NW, OBJ_TYPES,
   edgeN, edgeW, getTile, getRoof, getStairs, unpackRoof, unpackObj,
   objectAt, objFootprint, iso, screenToTile, type World,
+  floorSkin, roofSkin, propSkin, edgeSkin,
 } from '../shared/world.ts'
 import { ITEM_COLOR, type Entity } from '../shared/entities.ts'
 
@@ -38,6 +39,21 @@ const texWall = loadTex('wall')
 const texRoof = loadTex('roof')
 const texDoor = loadTex('door')
 const texWindow = loadTex('window')
+const matImgs = new Map<string, HTMLImageElement>()
+function matImg(id: string) {
+  if (!id) return null
+  let im = matImgs.get(id)
+  if (!im) {
+    im = new Image()
+    im.src = '/materials/tiles/' + id
+    matImgs.set(id, im)
+  }
+  return im
+}
+function texOr(id: string | undefined, fallback: HTMLImageElement) {
+  const m = id ? matImg(id) : null
+  return m && ready(m) ? m : fallback
+}
 
 // Kenney Furniture Kit sprites, one per type per rotation (0=NE 1=SE 2=SW 3=NW facing)
 const objImgs = OBJ_TYPES.map(o => [0, 1, 2, 3].map(r => {
@@ -200,7 +216,8 @@ function drawFloor(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: numb
     ctx.globalAlpha = 1
     return
   }
-  const img = texFloor[t]
+  const sid = w.skins.get(floorSkin(tx, ty, z))
+  const img = texOr(sid, texFloor[t])
   const o = { x: p.x, y: oy }
   const u = { x: TILE_W / 2, y: TILE_H / 2 }
   const v = { x: -TILE_W / 2, y: TILE_H / 2 }
@@ -222,6 +239,7 @@ function drawEdgeSeg(
   h: number,
   kind: number,
   alpha: number,
+  skin?: string,
 ) {
   if (kind === EDGE_NONE) return
   const prev = ctx.globalAlpha
@@ -230,7 +248,7 @@ function drawEdgeSeg(
   const o = { x: a.x, y: a.y }
   const u = { x: b.x - a.x, y: b.y - a.y }
   const v = { x: 0, y: -h }
-  if (!fillTex(ctx, texWall, o, u, v)) {
+  if (!fillTex(ctx, kind === EDGE_WALL ? texOr(skin, texWall) : texWall, o, u, v)) {
     ctx.beginPath()
     ctx.moveTo(a.x, a.y)
     ctx.lineTo(b.x, b.y)
@@ -260,7 +278,7 @@ function drawEdgeSeg(
     const o2 = { x: a.x + u.x * t0, y: a.y + u.y * t0 - h * 0.32 }
     const u2 = { x: u.x * (t1 - t0), y: u.y * (t1 - t0) }
     const v2 = { x: 0, y: -h * 0.45 }
-    if (!fillTex(ctx, texWindow, o2, u2, v2)) {
+    if (!fillTex(ctx, texOr(skin, texWindow), o2, u2, v2)) {
       ctx.beginPath()
       ctx.moveTo(o2.x, o2.y)
       ctx.lineTo(o2.x + u2.x, o2.y + u2.y)
@@ -276,7 +294,7 @@ function drawEdgeSeg(
     const o2 = { x: a.x + u.x * t0, y: a.y + u.y * t0 - 1 }
     const u2 = { x: u.x * (t1 - t0), y: u.y * (t1 - t0) }
     const v2 = { x: 0, y: -h + 6 }
-    if (!fillTex(ctx, texDoor, o2, u2, v2)) {
+    if (!fillTex(ctx, texOr(skin, texDoor), o2, u2, v2)) {
       ctx.beginPath()
       ctx.moveTo(o2.x, o2.y)
       ctx.lineTo(o2.x + u2.x, o2.y + u2.y)
@@ -305,9 +323,9 @@ function drawEdges(
   const ne = iso(tx + 1, ty); ne.y -= base
   const sw = iso(tx, ty + 1); sw.y -= base
   const n = edgeN(w, tx, ty, z)
-  if (n) drawEdgeSeg(ctx, nw, ne, h, n, alpha)
+  if (n) drawEdgeSeg(ctx, nw, ne, h, n, alpha, w.skins.get(edgeSkin('N', tx, ty, z)))
   const ww = edgeW(w, tx, ty, z)
-  if (ww) drawEdgeSeg(ctx, nw, sw, h, ww, alpha)
+  if (ww) drawEdgeSeg(ctx, nw, sw, h, ww, alpha, w.skins.get(edgeSkin('W', tx, ty, z)))
 }
 
 function drawStairsAt(ctx: CanvasRenderingContext2D, tx: number, ty: number, z: number, dir: number, alpha: number) {
@@ -335,7 +353,7 @@ function drawStairs(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: num
   drawStairsAt(ctx, tx, ty, z, dir, dim)
 }
 
-function drawRoofShape(ctx: CanvasRenderingContext2D, tx: number, ty: number, z: number, roof: ReturnType<typeof unpackRoof>, alpha: number) {
+function drawRoofShape(ctx: CanvasRenderingContext2D, tx: number, ty: number, z: number, roof: ReturnType<typeof unpackRoof>, alpha: number, skin?: string) {
   const base = levelY(z)
   ctx.globalAlpha = alpha
   if (roof.flat) {
@@ -345,7 +363,7 @@ function drawRoofShape(ctx: CanvasRenderingContext2D, tx: number, ty: number, z:
     const u = { x: TILE_W / 2, y: TILE_H / 2 }
     const v = { x: -TILE_W / 2, y: TILE_H / 2 }
     diamond(ctx, p.x, oy)
-    if (!fillTex(ctx, texRoof, o, u, v)) {
+    if (!fillTex(ctx, texOr(skin, texRoof), o, u, v)) {
       ctx.fillStyle = '#5a4030cc'
       ctx.fill()
     }
@@ -389,7 +407,7 @@ function drawRoofShape(ctx: CanvasRenderingContext2D, tx: number, ty: number, z:
     const o = pts[0]
     const u = { x: pts[1].x - pts[0].x, y: pts[1].y - pts[0].y }
     const v = { x: pts[3].x - pts[0].x, y: pts[3].y - pts[0].y }
-    if (!fillTex(ctx, texRoof, o, u, v, false)) {
+    if (!fillTex(ctx, texOr(skin, texRoof), o, u, v, false)) {
       ctx.fillStyle = roof.corner ? '#7a5538dd' : '#6a4a30dd'
       ctx.fill()
     }
@@ -420,7 +438,7 @@ function drawRoofTile(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: n
   if (underRoof) return
   const roof = getRoof(w, tx, ty, z)
   if (!roof) return
-  drawRoofShape(ctx, tx, ty, z, roof, dim)
+  drawRoofShape(ctx, tx, ty, z, roof, dim, w.skins.get(roofSkin(tx, ty, z)))
 }
 
 export function drawObjectBox(ctx: CanvasRenderingContext2D, ax: number, ay: number, z: number, typeIdx: number, rot: number, alpha: number) {
@@ -497,6 +515,27 @@ function drawObjectTile(ctx: CanvasRenderingContext2D, w: World, tx: number, ty:
   drawObjectBox(ctx, o.ax, o.ay, z, o.typeIdx, o.rot, dim)
 }
 
+function drawPropTile(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: number, z: number, seen: boolean, dim: number) {
+  if (!seen) return
+  const id = w.skins.get(propSkin(tx, ty, z))
+  if (!id) return
+  const img = matImg(id)
+  const p = iso(tx + 0.5, ty + 0.5)
+  const oy = p.y - levelY(z)
+  ctx.globalAlpha = dim
+  if (ready(img)) {
+    const dw = TILE_W * 0.85
+    const dh = img.naturalHeight * (dw / img.naturalWidth)
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(img, p.x - dw / 2, oy - dh + TILE_H / 4, dw, dh)
+  } else {
+    diamond(ctx, iso(tx, ty).x, iso(tx, ty).y - levelY(z))
+    ctx.fillStyle = '#888'
+    ctx.fill()
+  }
+  ctx.globalAlpha = 1
+}
+
 export type DrawEnt = { e: Entity; x: number; y: number; moving?: boolean }
 export type PreviewEdge = {
   x: number
@@ -512,6 +551,8 @@ export type PreviewEdge = {
   stairs?: number
   roof?: number
   obj?: number
+  mat?: string
+  prop?: boolean
 }
 
 function drawPlayer(ctx: CanvasRenderingContext2D, d: DrawEnt, now: number, dim: number) {
@@ -634,6 +675,7 @@ export function render(
         const seen = !useVis || useVis.has(tx + ',' + ty)
         drawFloor(ctx, world, tx, ty, lz, seen || lz < myZ, dim)
         drawObjectTile(ctx, world, tx, ty, lz, seen || lz < myZ, dim)
+        drawPropTile(ctx, world, tx, ty, lz, seen || lz < myZ, dim)
         drawEdges(ctx, world, tx, ty, lz, seen || lz < myZ, ix, iy, dim)
         drawStairs(ctx, world, tx, ty, lz, seen || lz < myZ, dim)
       }
@@ -670,7 +712,7 @@ export function render(
         const oy = p.y - base
         diamond(ctx, p.x, oy)
         ctx.globalAlpha = 0.3
-        const img = texFloor[pe.floor]
+        const img = texOr(pe.mat, texFloor[pe.floor])
         const o = { x: p.x, y: oy }
         const u = { x: TILE_W / 2, y: TILE_H / 2 }
         const v = { x: -TILE_W / 2, y: TILE_H / 2 }
@@ -682,11 +724,24 @@ export function render(
         continue
       }
       if (pe.ghost && pe.roof != null) {
-        drawRoofShape(ctx, pe.x, pe.y, pz, unpackRoof(pe.roof), 0.3)
+        drawRoofShape(ctx, pe.x, pe.y, pz, unpackRoof(pe.roof), 0.3, pe.mat)
         continue
       }
       if (pe.ghost && pe.stairs != null) {
         drawStairsAt(ctx, pe.x, pe.y, pz, pe.stairs, 0.3)
+        continue
+      }
+      if (pe.ghost && pe.prop && pe.mat) {
+        const img = matImg(pe.mat)
+        const p = iso(pe.x + 0.5, pe.y + 0.5)
+        ctx.globalAlpha = 0.3
+        if (ready(img)) {
+          const dw = TILE_W * 0.85
+          const dh = img.naturalHeight * (dw / img.naturalWidth)
+          ctx.imageSmoothingEnabled = false
+          ctx.drawImage(img, p.x - dw / 2, p.y - base - dh + TILE_H / 4, dw, dh)
+        }
+        ctx.globalAlpha = 1
         continue
       }
       if (pe.ghost && pe.obj != null) {
@@ -708,7 +763,7 @@ export function render(
       const a = nw
       const b = pe.dir === 'N' ? ne : sw
       if (pe.ghost) {
-        drawEdgeSeg(ctx, a, b, WALL_H, pe.kind || EDGE_WALL, 0.3)
+        drawEdgeSeg(ctx, a, b, WALL_H, pe.kind || EDGE_WALL, 0.3, pe.mat)
       } else if (pe.color) {
         const h = WALL_H
         ctx.beginPath()
@@ -721,7 +776,7 @@ export function render(
         ctx.lineWidth = 3
         ctx.stroke()
       } else {
-        drawEdgeSeg(ctx, a, b, WALL_H, pe.kind || EDGE_WALL, 0.3)
+        drawEdgeSeg(ctx, a, b, WALL_H, pe.kind || EDGE_WALL, 0.3, pe.mat)
       }
     }
   }

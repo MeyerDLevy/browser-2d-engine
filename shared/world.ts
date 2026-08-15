@@ -60,6 +60,7 @@ export type World = {
   roofs: Map<string, number>
   noRoof: Set<string>
   objects: Map<string, number>
+  skins: Map<string, string>
 }
 
 export type MapData = {
@@ -74,6 +75,7 @@ export type MapData = {
   roofs: [string, number][] | string[]
   noRoof?: string[]
   objects?: [string, number][]
+  skins?: [string, string][]
 }
 
 export function makeWorld(seed = 1, mapSize = MAP_SIZE, blank = false): World {
@@ -86,7 +88,21 @@ export function makeWorld(seed = 1, mapSize = MAP_SIZE, blank = false): World {
     roofs: new Map(),
     noRoof: new Set(),
     objects: new Map(),
+    skins: new Map(),
   }
+}
+
+export function floorSkin(x: number, y: number, z = 0) {
+  return 'f,' + cellKey(x, y, z)
+}
+export function roofSkin(x: number, y: number, z = 0) {
+  return 'r,' + cellKey(x, y, z)
+}
+export function propSkin(x: number, y: number, z = 0) {
+  return 'p,' + cellKey(x, y, z)
+}
+export function edgeSkin(dir: 'N' | 'W', x: number, y: number, z = 0) {
+  return (dir === 'N' ? 'n,' : 'w,') + cellKey(x, y, z)
 }
 
 export function hash(x: number, y: number, seed: number) {
@@ -379,7 +395,7 @@ function migrateKey(k: string) {
 
 export function serializeMap(w: World): MapData {
   return {
-    version: 3,
+    version: 4,
     seed: w.seed,
     mapSize: w.mapSize,
     blank: w.blank,
@@ -390,6 +406,7 @@ export function serializeMap(w: World): MapData {
     roofs: [...w.roofs.entries()],
     noRoof: [...w.noRoof],
     objects: [...w.objects.entries()],
+    skins: [...(w.skins || new Map()).entries()],
   }
 }
 
@@ -411,6 +428,7 @@ export function applyMap(w: World, data: MapData) {
     }
     w.noRoof = new Set((data.noRoof || []).map(migrateKey))
     w.objects = new Map()
+    w.skins = new Map()
   } else {
     w.floors = new Map(data.floors || [])
     w.edgesN = new Map(data.edgesN || [])
@@ -419,6 +437,7 @@ export function applyMap(w: World, data: MapData) {
     w.roofs = new Map((data.roofs as [string, number][]) || [])
     w.noRoof = new Set(data.noRoof || [])
     w.objects = new Map(data.objects || [])
+    w.skins = new Map(data.skins || [])
   }
 }
 

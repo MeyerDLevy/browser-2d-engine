@@ -6,12 +6,13 @@ import {
   setTile, setEdgeN, setEdgeW, setRoof, setStairs, clearStairs, getStairs,
   edgeN, edgeW, packRoof, packRoofCorner, unpackRoof, resolveRoofCorners, cellKey,
   packObj, setObject, clearObject, objectAt, objFootprint,
+  floorSkin, roofSkin, propSkin, edgeSkin,
   type World, type MapData,
 } from '../shared/world.ts'
 import { render, resize, screenToWorld, type Cam, type PreviewEdge } from './render.ts'
 import { clearVisionCache } from './vision.ts'
 import { startMaterials } from './materials.ts'
-import { tilesFor, emptyCatalog, type Catalog } from '../shared/materials.ts'
+import { tilesFor, emptyCatalog, CATEGORIES, type Catalog, type Category } from '../shared/materials.ts'
 
 type Tool = 'select' | 'wall' | 'door' | 'window' | 'floor' | 'object' | 'roof' | 'slope' | 'stairs' | 'erase'
 type EdgeHit = { x: number; y: number; dir: 'N' | 'W' }
@@ -61,6 +62,7 @@ export function startEditor() {
       <div id="eb-tools"></div>
       <div id="eb-floors" style="display:none"></div>
       <div id="eb-objects" style="display:none"></div>
+      <div id="eb-mats" style="display:none"></div>
       <div id="eb-save">
         <input id="eb-name" placeholder="map name" maxlength="32">
         <button id="eb-save-btn">save</button>
@@ -87,7 +89,9 @@ export function startEditor() {
         border: 1px solid #555; padding: 5px 8px;
       }
       #editor-bar button.on { background: #5a4030; border-color: #8a6a50; }
-      #eb-tools, #eb-floors, #eb-objects, #eb-save, #eb-level, #eb-mode { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      #eb-tools, #eb-floors, #eb-objects, #eb-mats, #eb-save, #eb-level, #eb-mode { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      #eb-mats button { padding: 3px 5px; }
+      #eb-mats img { width: 32px; height: 32px; image-rendering: pixelated; vertical-align: middle; background: #111; }
       #eb-msg { width: 100%; color: #888; }
       #eb-z-label { min-width: 70px; text-align: center; }
     `
@@ -98,6 +102,13 @@ export function startEditor() {
   const toolsEl = document.getElementById('eb-tools')
   const floorsEl = document.getElementById('eb-floors')
   const objectsEl = document.getElementById('eb-objects')
+  let matsEl = document.getElementById('eb-mats')
+  if (!matsEl) {
+    matsEl = document.createElement('div')
+    matsEl.id = 'eb-mats'
+    matsEl.style.display = 'none'
+    objectsEl.after(matsEl)
+  }
   const msgEl = document.getElementById('eb-msg')
   const zLabel = document.getElementById('eb-z-label')
   const nameEl = document.getElementById('eb-name') as HTMLInputElement
@@ -110,6 +121,8 @@ export function startEditor() {
   let floorType = WOOD
   let objType = 0
   let objRot = 0
+  let useMatObj = false
+  const picked: Partial<Record<Category, string>> = {}
   let editZ = 0
   let stairDir = DIR_N
   let world: World = makeWorld(1, MAP_SIZE, false)
@@ -143,6 +156,17 @@ export function startEditor() {
   function setMsg(s: string) { msgEl.textContent = s }
   function updateZLabel() { zLabel.textContent = 'level ' + editZ }
 
+  function matTool(): Category | null {
+    return CATEGORIES.includes(tool as Category) ? tool as Category : null
+  }
+
+  function showPickers() {
+    const kind = matTool()
+    floorsEl.style.display = tool === 'floor' ? 'flex' : 'none'
+    objectsEl.style.display = tool === 'object' ? 'flex' : 'none'
+    matsEl.style.display = kind ? 'flex' : 'none'
+  }
+
   function rebuildTools() {
     const tools: [Tool, string][] = [
       ['select', 'select'],
@@ -157,8 +181,6 @@ export function startEditor() {
       b.className = tool === id ? 'on' : ''
       b.onclick = () => {
         tool = id
-        floorsEl.style.display = id === 'floor' ? 'flex' : 'none'
-        objectsEl.style.display = id === 'object' ? 'flex' : 'none'
         rebuildTools()
       }
       toolsEl.appendChild(b)
@@ -167,18 +189,47 @@ export function startEditor() {
     for (const f of FLOORS) {
       const b = document.createElement('button')
       b.textContent = f.name
-      b.className = floorType === f.id ? 'on' : ''
-      b.onclick = () => { floorType = f.id; rebuildTools() }
+      b.className = !picked.floor && floorType === f.id ? 'on' : ''
+      b.onclick = () => { floorType = f.id; delete picked.floor; rebuildTools() }
       floorsEl.appendChild(b)
     }
     objectsEl.innerHTML = ''
     OBJ_TYPES.forEach((o, i) => {
       const b = document.createElement('button')
-      b.textContent = o.id + (i === objType ? ' ' + DIR_NAMES[objRot] : '')
-      b.className = objType === i ? 'on' : ''
-      b.onclick = () => { objType = i; rebuildTools() }
+      b.textContent = o.id + (i === objType && !useMatObj ? ' ' + DIR_NAMES[objRot] : '')
+      b.className = !useMatObj && objType === i ? 'on' : ''
+      b.onclick = () => { objType = i; useMatObj = false; delete picked.object; rebuildTools() }
       objectsEl.appendChild(b)
     })
+    matsEl.innerHTML = ''
+    const kind = matTool()
+    if (kind) {
+      const tiles = tilesFor(catalog, kind)
+      if (!tiles.length) {
+        const s = document.createElement('span')
+        s.textContent = 'no ' + kind + ' tiles — tag some in materials'
+        s.style.color = '#888'
+        matsEl.appendChild(s)
+      }
+      for (const t of tiles) {
+        const b = document.createElement('button')
+        b.className = picked[kind] === t.id ? 'on' : ''
+        b.title = t.description || t.group + ' ' + t.n
+        const img = document.createElement('img')
+        img.src = '/materials/tiles/' + t.id
+        img.width = 32
+        img.height = 32
+        img.style.imageRendering = 'pixelated'
+        b.appendChild(img)
+        b.onclick = () => {
+          picked[kind] = t.id
+          if (kind === 'object') useMatObj = true
+          rebuildTools()
+        }
+        matsEl.appendChild(b)
+      }
+    }
+    showPickers()
   }
   rebuildTools()
   updateZLabel()
@@ -187,28 +238,29 @@ export function startEditor() {
     view = v
     document.getElementById('eb-map').className = v === 'map' ? 'on' : ''
     document.getElementById('eb-materials').className = v === 'materials' ? 'on' : ''
-    const mapBits = ['eb-level', 'eb-tools', 'eb-floors', 'eb-objects', 'eb-save']
+    const mapBits = ['eb-level', 'eb-tools', 'eb-floors', 'eb-objects', 'eb-mats', 'eb-save']
     for (const id of mapBits) {
       const el = document.getElementById(id)
-      if (id === 'eb-floors' || id === 'eb-objects') continue
+      if (id === 'eb-floors' || id === 'eb-objects' || id === 'eb-mats') continue
       el.style.display = v === 'map' ? 'flex' : 'none'
     }
     if (v === 'map') {
-      floorsEl.style.display = tool === 'floor' ? 'flex' : 'none'
-      objectsEl.style.display = tool === 'object' ? 'flex' : 'none'
+      catalog = mats.catalog
+      rebuildTools()
       canvas.style.display = 'block'
       mats.hide()
       resize(canvas)
     } else {
       floorsEl.style.display = 'none'
       objectsEl.style.display = 'none'
+      matsEl.style.display = 'none'
       canvas.style.display = 'none'
       mats.show().then(() => { catalog = mats.catalog })
     }
   }
   document.getElementById('eb-map').onclick = () => setView('map')
   document.getElementById('eb-materials').onclick = () => setView('materials')
-  fetch('/materials').then(r => r.json()).then(c => { catalog = c })
+  fetch('/materials').then(r => r.json()).then(c => { catalog = c; rebuildTools() })
 
   document.getElementById('eb-z-down').onclick = () => {
     editZ = Math.max(0, editZ - 1)
@@ -323,9 +375,33 @@ export function startEditor() {
     return out
   }
 
-  function applyEdge(e: EdgeHit, kind: number) {
+  function applyEdge(e: EdgeHit, kind: number, skin?: string) {
     if (e.dir === 'N') setEdgeN(world, e.x, e.y, kind, editZ)
     else setEdgeW(world, e.x, e.y, kind, editZ)
+    const k = edgeSkin(e.dir, e.x, e.y, editZ)
+    if (kind === EDGE_NONE) world.skins.delete(k)
+    else if (skin) world.skins.set(k, skin)
+    else if (skin === '') world.skins.delete(k)
+    else {
+      const id = picked[tool as Category]
+      if (id) world.skins.set(k, id)
+      else world.skins.delete(k)
+    }
+  }
+
+  function moveEdgeSkin(from: EdgeHit, to: EdgeHit) {
+    const a = edgeSkin(from.dir, from.x, from.y, editZ)
+    const b = edgeSkin(to.dir, to.x, to.y, editZ)
+    const s = world.skins.get(a)
+    world.skins.delete(a)
+    if (s) world.skins.set(b, s)
+    else world.skins.delete(b)
+  }
+
+  function copySkin(fromKey: string, toKey: string) {
+    const s = world.skins.get(fromKey)
+    if (s) world.skins.set(toKey, s)
+    else world.skins.delete(toKey)
   }
 
   function slopeDir(x0: number, y0: number, x1: number, y1: number) {
@@ -352,7 +428,12 @@ export function startEditor() {
 
   function paintSlope(x0: number, y0: number, x1: number, y1: number) {
     const { dir, tiles } = slopeTiles(x0, y0, x1, y1)
-    tiles.forEach((t, i) => setRoof(world, t.x, t.y, true, editZ, packRoof(dir, i)))
+    tiles.forEach((t, i) => {
+      setRoof(world, t.x, t.y, true, editZ, packRoof(dir, i))
+      const k = roofSkin(t.x, t.y, editZ)
+      if (picked.slope) world.skins.set(k, picked.slope)
+      else world.skins.delete(k)
+    })
     resolveRoofCorners(world, editZ)
   }
 
@@ -417,8 +498,11 @@ export function startEditor() {
     if (selection.type === 'edge') {
       const i = SIDES.indexOf(selection.side)
       const next = SIDES[(i + 1) % 4]
+      const from = sideToHit(selection.x, selection.y, selection.side)
+      const to = sideToHit(selection.x, selection.y, next)
       setSide(selection.x, selection.y, selection.side, EDGE_NONE)
       setSide(selection.x, selection.y, next, selection.edgeKind)
+      moveEdgeSkin(from, to)
       selection = { ...selection, side: next }
     } else if (selection.type === 'stairs') {
       const next = (selection.dir + 1) % 4
@@ -441,11 +525,26 @@ export function startEditor() {
 
   function paintAt(tx: number, ty: number) {
     const ix = Math.floor(tx), iy = Math.floor(ty)
-    if (tool === 'floor') setTile(world, ix, iy, floorType, editZ)
-    else if (tool === 'object') {
-      if (objFits(ix, iy, objType, objRot)) setObject(world, ix, iy, objType, objRot, editZ)
+    if (tool === 'floor') {
+      setTile(world, ix, iy, floorType, editZ)
+      const k = floorSkin(ix, iy, editZ)
+      if (picked.floor) world.skins.set(k, picked.floor)
+      else world.skins.delete(k)
     }
-    else if (tool === 'roof') setRoof(world, ix, iy, true, editZ, -1)
+    else if (tool === 'object') {
+      if (useMatObj && picked.object) {
+        world.skins.set(propSkin(ix, iy, editZ), picked.object)
+      } else if (objFits(ix, iy, objType, objRot)) {
+        world.skins.delete(propSkin(ix, iy, editZ))
+        setObject(world, ix, iy, objType, objRot, editZ)
+      }
+    }
+    else if (tool === 'roof') {
+      setRoof(world, ix, iy, true, editZ, -1)
+      const k = roofSkin(ix, iy, editZ)
+      if (picked.roof) world.skins.set(k, picked.roof)
+      else world.skins.delete(k)
+    }
     else if (tool === 'stairs') {
       const cur = getStairs(world, ix, iy, editZ)
       if (cur == null) setStairs(world, ix, iy, stairDir, editZ)
@@ -464,12 +563,16 @@ export function startEditor() {
       const e = nearestEdge(tx, ty)
       const cur = e.dir === 'N' ? edgeN(world, e.x, e.y, editZ) : edgeW(world, e.x, e.y, editZ)
       const obj = objectAt(world, ix, iy, editZ)
+      const pk = propSkin(ix, iy, editZ)
       if (cur !== EDGE_NONE) applyEdge(e, EDGE_NONE)
       else if (obj) clearObject(world, obj.ax, obj.ay, editZ)
+      else if (world.skins.has(pk)) world.skins.delete(pk)
       else if (getStairs(world, ix, iy, editZ) != null) clearStairs(world, ix, iy, editZ)
       else {
         setRoof(world, ix, iy, false, editZ)
+        world.skins.delete(roofSkin(ix, iy, editZ))
         setTile(world, ix, iy, editZ === 0 ? GRASS : NONE, editZ)
+        world.skins.delete(floorSkin(ix, iy, editZ))
         resolveRoofCorners(world, editZ)
       }
       if (selection && selection.x === ix && selection.y === iy) selection = null
@@ -530,13 +633,16 @@ export function startEditor() {
     const out: PreviewEdge[] = []
     if (hoverTile) {
       out.push(tileOutline(hoverTile.x, hoverTile.y, PALE, tool === 'floor' || tool === 'object'))
-      if (tool === 'floor') out.push({ x: hoverTile.x, y: hoverTile.y, z: editZ, ghost: true, floor: floorType })
-      if (tool === 'object') out.push({ x: hoverTile.x, y: hoverTile.y, z: editZ, ghost: true, obj: packObj(objType, objRot) })
-      if (tool === 'roof') out.push({ x: hoverTile.x, y: hoverTile.y, z: editZ, ghost: true, roof: -1 })
+      if (tool === 'floor') out.push({ x: hoverTile.x, y: hoverTile.y, z: editZ, ghost: true, floor: floorType, mat: picked.floor })
+      if (tool === 'object') {
+        if (useMatObj && picked.object) out.push({ x: hoverTile.x, y: hoverTile.y, z: editZ, ghost: true, mat: picked.object, prop: true })
+        else out.push({ x: hoverTile.x, y: hoverTile.y, z: editZ, ghost: true, obj: packObj(objType, objRot) })
+      }
+      if (tool === 'roof') out.push({ x: hoverTile.x, y: hoverTile.y, z: editZ, ghost: true, roof: -1, mat: picked.roof })
       if (tool === 'stairs') out.push({ x: hoverTile.x, y: hoverTile.y, z: editZ, ghost: true, stairs: stairDir })
-      if (tool === 'slope') out.push({ x: hoverTile.x, y: hoverTile.y, z: editZ, ghost: true, roof: packRoof(DIR_S, 0) })
+      if (tool === 'slope') out.push({ x: hoverTile.x, y: hoverTile.y, z: editZ, ghost: true, roof: packRoof(DIR_S, 0), mat: picked.slope })
     }
-    if (hoverEdge) out.push({ ...hoverEdge, kind: placeKind(), z: editZ, ghost: true })
+    if (hoverEdge) out.push({ ...hoverEdge, kind: placeKind(), z: editZ, ghost: true, mat: picked[tool as Category] })
     if (hover && !sameSel(hover, selection)) out.push(...selHighlights(hover, PALE))
     if (selection) out.push(...selHighlights(selection, YELLOW))
     if (copyDrag && selection) {
@@ -556,12 +662,12 @@ export function startEditor() {
     }
     if (drag) {
       for (const h of edgeRun(drag.start, drag.cur)) {
-        out.push({ ...h, kind: placeKind(), z: editZ, ghost: true })
+        out.push({ ...h, kind: placeKind(), z: editZ, ghost: true, mat: picked[tool as Category] })
       }
     }
     if (slopeDrag) {
       const { dir, tiles } = slopeTiles(slopeDrag.x0, slopeDrag.y0, slopeDrag.x1, slopeDrag.y1)
-      tiles.forEach((t, i) => out.push({ x: t.x, y: t.y, z: editZ, ghost: true, roof: packRoof(dir, i) }))
+      tiles.forEach((t, i) => out.push({ x: t.x, y: t.y, z: editZ, ghost: true, roof: packRoof(dir, i), mat: picked.slope }))
     }
     return out
   }
@@ -667,7 +773,12 @@ export function startEditor() {
       if (extra.length) {
         pushUndo()
         for (const t of extra) {
-          if (selection.type === 'edge') setSide(t.x, t.y, selection.side, selection.edgeKind)
+          if (selection.type === 'edge') {
+            const src = sideToHit(selection.x, selection.y, selection.side)
+            const dst = sideToHit(t.x, t.y, selection.side)
+            setSide(t.x, t.y, selection.side, selection.edgeKind)
+            copySkin(edgeSkin(src.dir, src.x, src.y, editZ), edgeSkin(dst.dir, dst.x, dst.y, editZ))
+          }
           else if (selection.type === 'stairs') {
             setStairs(world, t.x, t.y, selection.dir, editZ)
             setTile(world, t.x, t.y, WOOD, editZ)
@@ -677,6 +788,7 @@ export function startEditor() {
             }
           } else {
             setRoof(world, t.x, t.y, true, editZ, selection.packed)
+            copySkin(roofSkin(selection.x, selection.y, editZ), roofSkin(t.x, t.y, editZ))
           }
         }
         if (selection.type === 'roof') resolveRoofCorners(world, editZ)
@@ -717,5 +829,5 @@ export function startEditor() {
   }
   requestAnimationFrame(frame)
   setMsg('click any placed object to select · R rotate · drag copy · ctrl+z undo · [ ] level · wasd pan')
-  ;(window as any).G = { world, cam, get z() { return editZ }, get sel() { return selection }, get catalog() { return catalog }, tilesFor: (k) => tilesFor(catalog, k) }
+  ;(window as any).G = { world, cam, get z() { return editZ }, get sel() { return selection }, get catalog() { return catalog }, tilesFor: (k) => tilesFor(catalog, k), picked }
 }

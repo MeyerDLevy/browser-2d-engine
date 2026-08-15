@@ -1,5 +1,5 @@
-export type Category = 'wall' | 'roof' | 'slope' | 'floor'
-export const CATEGORIES: Category[] = ['wall', 'roof', 'slope', 'floor']
+export type Category = 'wall' | 'door' | 'window' | 'floor' | 'object' | 'roof' | 'slope'
+export const CATEGORIES: Category[] = ['wall', 'door', 'window', 'floor', 'object', 'roof', 'slope']
 
 export type TileGroup = { name: string; color: string; cells: { c: number; r: number }[] }
 
