@@ -175,6 +175,7 @@ export function startMaterials() {
         <label>group name</label>
         <input type="text" id="mat-gname" placeholder="required">
         <button id="mat-group">group selected</button>
+        <button id="mat-deselect">deselect all</button>
         <div id="mat-selcount" style="margin-top:8px;color:#888"></div>
       `
       const size = insp.querySelector('#mat-size') as HTMLInputElement
@@ -198,6 +199,12 @@ export function startMaterials() {
         tm = cat.tilemaps.find(x => x.id === tm.id)
         sel.clear()
         refresh()
+      }
+      ;(insp.querySelector('#mat-deselect') as HTMLButtonElement).onclick = () => {
+        sel.clear()
+        box = null
+        draw()
+        count()
       }
       return
     }
