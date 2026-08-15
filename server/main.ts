@@ -1,6 +1,8 @@
 import * as esbuild from 'esbuild'
 import { createServer } from 'http'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
+import { loadCatalog, saveCatalog, cropCell } from './materials.ts'
+import { storeGet, storePut } from './bucket.ts'
 import { join } from 'path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { MAP_SIZE, TICK_DT, TICK_HZ, applyMap, serializeMap, type MapData } from '../shared/world.ts'
@@ -132,6 +134,14 @@ function readBody(req): Promise<string> {
   })
 }
 
+function readBuf(req): Promise<Buffer> {
+  return new Promise(resolve => {
+    const chunks = []
+    req.on('data', c => chunks.push(c))
+    req.on('end', () => resolve(Buffer.concat(chunks)))
+  })
+}
+
 const mime = {
   '.html': 'text/html',
   '.js': 'text/javascript',
@@ -169,6 +179,73 @@ const httpServer = createServer(async (req, res) => {
     writeFileSync(mapPath(name), JSON.stringify(data))
     res.setHeader('Content-Type', 'application/json')
     res.end(JSON.stringify({ ok: true, name }))
+    return
+  }
+  if (p === '/materials' && req.method === 'GET') {
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify(await loadCatalog()))
+    return
+  }
+  if (p === '/materials' && req.method === 'PUT') {
+    const cat = JSON.parse(await readBody(req))
+    await saveCatalog(cat)
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ ok: true }))
+    return
+  }
+  if (p.startsWith('/materials/tilemaps/') && req.method === 'GET') {
+    const id = slug(p.slice('/materials/tilemaps/'.length))
+    const buf = await storeGet('tilemaps/' + id + '.png')
+    if (!buf) { res.statusCode = 404; res.end(); return }
+    res.setHeader('Content-Type', 'image/png')
+    res.end(buf)
+    return
+  }
+  if (p.startsWith('/materials/tilemaps/') && req.method === 'POST') {
+    const id = slug(p.slice('/materials/tilemaps/'.length))
+    const buf = await readBuf(req)
+    await storePut('tilemaps/' + id + '.png', buf, 'image/png')
+    const cat = await loadCatalog()
+    if (!cat.tilemaps.find(t => t.id === id)) {
+      cat.tilemaps.push({ id, file: 'tilemaps/' + id + '.png', tileSize: 16, gap: 0, groups: [] })
+      await saveCatalog(cat)
+    }
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ ok: true, id }))
+    return
+  }
+  if (p.startsWith('/materials/tiles/') && req.method === 'GET') {
+    const id = slug(p.slice('/materials/tiles/'.length).replace(/\.png$/, ''))
+    const buf = await storeGet('tiles/' + id + '.png')
+    if (!buf) { res.statusCode = 404; res.end(); return }
+    res.setHeader('Content-Type', 'image/png')
+    res.end(buf)
+    return
+  }
+  if (p === '/materials/tiles' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req))
+    const cat = await loadCatalog()
+    const tm = cat.tilemaps.find(t => t.id === body.tilemapId)
+    const sheet = await storeGet(tm.file)
+    const groupName = slug(body.group)
+    const color = body.color
+    const cells = body.cells as { c: number; r: number }[]
+    tm.groups.push({ name: groupName, color, cells })
+    let n = cat.tiles.filter(t => t.group === groupName).length
+    for (const cell of cells) {
+      n++
+      const tid = groupName + '_' + n
+      const png = cropCell(sheet, tm.tileSize, tm.gap, cell.c, cell.r)
+      await storePut('tiles/' + tid + '.png', png, 'image/png')
+      cat.tiles.push({
+        id: tid, group: groupName, n, tilemapId: tm.id,
+        c: cell.c, r: cell.r, file: 'tiles/' + tid + '.png',
+        description: '', categories: [],
+      })
+    }
+    await saveCatalog(cat)
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify(cat))
     return
   }
 

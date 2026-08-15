@@ -2,3 +2,4 @@ node_modules
 dist
 maps
 client/assets/_sample
+tmp-*

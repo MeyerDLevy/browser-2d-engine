@@ -45,7 +45,7 @@ export const OBJ_TYPES = [
   { id: 'chair', w: 1, h: 1, solid: false, color: '#7a5030', height: 14 },
   { id: 'toilet', w: 1, h: 1, solid: false, color: '#e8e8e0', height: 14 },
   { id: 'couch', w: 2, h: 1, solid: true, color: '#606a30', height: 18 },
-  { id: 'bed', w: 2, h: 1, solid: true, color: '#90b0c0', height: 12 },
+  { id: 'bed', w: 2, h: 2, solid: true, color: '#90b0c0', height: 12 },
   { id: 'table', w: 2, h: 1, solid: true, color: '#9a7a4a', height: 22 },
 ]
 

@@ -25,7 +25,11 @@ Map size is `MAP_SIZE` in `shared/world.ts`.
 
 Live: https://browser-2d-engine-production.up.railway.app
 
+Materials (tilemaps/tiles) persist in a Railway object-storage bucket. Locally, without `AWS_*` env vars, they live under `maps/materials/`.
+
 ## art
 
 Hero sprites: Clint Bellanger / Flare, CC-BY-SA 3.0.
 Furniture sprites: Kenney Furniture Kit (kenney.nl), CC0.
+Floor/wall/roof textures: Kenney Roguelike Modern City (kenney.nl), CC0.
+Wall/door/window/fence/roof/steps sprites: Kenney Retro Urban Kit (kenney.nl), CC0 (see `client/assets/objects/RETRO_URBAN_KIT.md`).

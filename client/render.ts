@@ -28,24 +28,36 @@ heroImg.src = '/assets/hero.png'
 const headImg = new Image()
 headImg.src = '/assets/head.png'
 
+function loadTex(name: string) {
+  const im = new Image()
+  im.src = `/assets/tex/${name}.png`
+  return im
+}
+const texFloor = [loadTex('grass'), loadTex('dirt'), loadTex('road'), loadTex('water'), loadTex('wood')]
+const texWall = loadTex('wall')
+const texRoof = loadTex('roof')
+const texDoor = loadTex('door')
+const texWindow = loadTex('window')
+
 // Kenney Furniture Kit sprites, one per type per rotation (0=NE 1=SE 2=SW 3=NW facing)
 const objImgs = OBJ_TYPES.map(o => [0, 1, 2, 3].map(r => {
   const im = new Image()
   im.src = `/assets/objects/${o.id}_${r}.png`
   return im
 }))
-// trimmed sprites need per-type fit: s scales source px, dy nudges down on screen
-// SQUASH flattens Kenney's steeper projection (diamond ratio 0.59) to ours (0.5)
-const OBJ_SQUASH = 0.85
-const OBJ_TUNE: Record<string, { s: number; dy: number }> = {
-  fridge: { s: 0.6, dy: 6 },
-  crate: { s: 0.9, dy: 2 },
-  chair: { s: 0.8, dy: 3 },
-  toilet: { s: 0.6, dy: 2 },
-  couch: { s: 0.88, dy: 4 },
-  bed: { s: 0.58, dy: 3 },
-  table: { s: 1.0, dy: 2 },
+// how much of its footprint's iso width each piece visually fills
+const OBJ_FILL: Record<string, number> = {
+  fridge: 0.8,
+  crate: 0.7,
+  chair: 0.62,
+  toilet: 0.62,
+  couch: 1,
+  bed: 0.85,
+  table: 0.95,
 }
+// Kenney art's ground diamond is height:width 0.702, ours is TILE_H/TILE_W=0.5;
+// only the diamond (roof + base point) needs re-ratioing, not the vertical wall drop below it
+const KENNEY_DIAMOND_RATIO = 0.702
 
 const animClock = new Map<string, { anim: string; t0: number }>()
 
@@ -101,6 +113,32 @@ function diamond(ctx: CanvasRenderingContext2D, ox: number, oy: number) {
   ctx.lineTo(ox, oy + TILE_H)
   ctx.lineTo(ox - TILE_W / 2, oy + TILE_H / 2)
   ctx.closePath()
+}
+
+function fillTex(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  o: { x: number; y: number },
+  u: { x: number; y: number },
+  v: { x: number; y: number },
+  doClip = true,
+) {
+  if (!ready(img)) return false
+  ctx.save()
+  if (doClip) {
+    ctx.beginPath()
+    ctx.moveTo(o.x, o.y)
+    ctx.lineTo(o.x + u.x, o.y + u.y)
+    ctx.lineTo(o.x + u.x + v.x, o.y + u.y + v.y)
+    ctx.lineTo(o.x + v.x, o.y + v.y)
+    ctx.closePath()
+    ctx.clip()
+  }
+  ctx.imageSmoothingEnabled = false
+  ctx.transform(u.x / img.naturalWidth, u.y / img.naturalWidth, v.x / img.naturalHeight, v.y / img.naturalHeight, o.x, o.y)
+  ctx.drawImage(img, 0, 0)
+  ctx.restore()
+  return true
 }
 
 function prismAt(ctx: CanvasRenderingContext2D, px: number, py: number, h: number, top: string, side: string) {
@@ -162,8 +200,15 @@ function drawFloor(ctx: CanvasRenderingContext2D, w: World, tx: number, ty: numb
     ctx.globalAlpha = 1
     return
   }
-  ctx.fillStyle = TILE_COLOR[t] || '#444'
-  ctx.fill()
+  const img = texFloor[t]
+  const o = { x: p.x, y: oy }
+  const u = { x: TILE_W / 2, y: TILE_H / 2 }
+  const v = { x: -TILE_W / 2, y: TILE_H / 2 }
+  if (!img || !fillTex(ctx, img, o, u, v)) {
+    ctx.fillStyle = TILE_COLOR[t] || '#444'
+    ctx.fill()
+  }
+  diamond(ctx, p.x, oy)
   ctx.strokeStyle = '#00000022'
   ctx.lineWidth = 0.5
   ctx.stroke()
@@ -181,16 +226,26 @@ function drawEdgeSeg(
   if (kind === EDGE_NONE) return
   const prev = ctx.globalAlpha
   ctx.globalAlpha = alpha * prev
-  const side = kind === EDGE_WINDOW ? '#4a6a78' : kind === EDGE_DOOR ? '#5c3a22' : '#4a3a30'
   const top = kind === EDGE_WINDOW ? '#8ab4c8' : '#6b5344'
+  const o = { x: a.x, y: a.y }
+  const u = { x: b.x - a.x, y: b.y - a.y }
+  const v = { x: 0, y: -h }
+  if (!fillTex(ctx, texWall, o, u, v)) {
+    ctx.beginPath()
+    ctx.moveTo(a.x, a.y)
+    ctx.lineTo(b.x, b.y)
+    ctx.lineTo(b.x, b.y - h)
+    ctx.lineTo(a.x, a.y - h)
+    ctx.closePath()
+    ctx.fillStyle = kind === EDGE_WINDOW ? '#4a6a78' : kind === EDGE_DOOR ? '#5c3a22' : '#4a3a30'
+    ctx.fill()
+  }
   ctx.beginPath()
   ctx.moveTo(a.x, a.y)
   ctx.lineTo(b.x, b.y)
   ctx.lineTo(b.x, b.y - h)
   ctx.lineTo(a.x, a.y - h)
   ctx.closePath()
-  ctx.fillStyle = side
-  ctx.fill()
   ctx.strokeStyle = '#00000044'
   ctx.lineWidth = 0.6
   ctx.stroke()
@@ -201,30 +256,36 @@ function drawEdgeSeg(
   ctx.lineWidth = 2
   ctx.stroke()
   if (kind === EDGE_WINDOW && h > 10) {
-    const mid = 0.35
-    ctx.beginPath()
-    ctx.moveTo(a.x, a.y - h * mid)
-    ctx.lineTo(b.x, b.y - h * mid)
-    ctx.lineTo(b.x, b.y - h * 0.75)
-    ctx.lineTo(a.x, a.y - h * 0.75)
-    ctx.closePath()
-    ctx.fillStyle = '#a8d0e8aa'
-    ctx.fill()
+    const t0 = 0.22, t1 = 0.78
+    const o2 = { x: a.x + u.x * t0, y: a.y + u.y * t0 - h * 0.32 }
+    const u2 = { x: u.x * (t1 - t0), y: u.y * (t1 - t0) }
+    const v2 = { x: 0, y: -h * 0.45 }
+    if (!fillTex(ctx, texWindow, o2, u2, v2)) {
+      ctx.beginPath()
+      ctx.moveTo(o2.x, o2.y)
+      ctx.lineTo(o2.x + u2.x, o2.y + u2.y)
+      ctx.lineTo(o2.x + u2.x, o2.y + u2.y + v2.y)
+      ctx.lineTo(o2.x, o2.y + v2.y)
+      ctx.closePath()
+      ctx.fillStyle = '#a8d0e8aa'
+      ctx.fill()
+    }
   }
   if (kind === EDGE_DOOR && h > 10) {
-    const t0 = 0.28, t1 = 0.72
-    const ax = a.x + (b.x - a.x) * t0
-    const ay = a.y + (b.y - a.y) * t0
-    const bx = a.x + (b.x - a.x) * t1
-    const by = a.y + (b.y - a.y) * t1
-    ctx.beginPath()
-    ctx.moveTo(ax, ay - 1)
-    ctx.lineTo(bx, by - 1)
-    ctx.lineTo(bx, by - h + 6)
-    ctx.lineTo(ax, ay - h + 6)
-    ctx.closePath()
-    ctx.fillStyle = '#1a1a18'
-    ctx.fill()
+    const t0 = 0.22, t1 = 0.78
+    const o2 = { x: a.x + u.x * t0, y: a.y + u.y * t0 - 1 }
+    const u2 = { x: u.x * (t1 - t0), y: u.y * (t1 - t0) }
+    const v2 = { x: 0, y: -h + 6 }
+    if (!fillTex(ctx, texDoor, o2, u2, v2)) {
+      ctx.beginPath()
+      ctx.moveTo(o2.x, o2.y)
+      ctx.lineTo(o2.x + u2.x, o2.y + u2.y)
+      ctx.lineTo(o2.x + u2.x, o2.y + u2.y + v2.y)
+      ctx.lineTo(o2.x, o2.y + v2.y)
+      ctx.closePath()
+      ctx.fillStyle = '#1a1a18'
+      ctx.fill()
+    }
   }
   ctx.globalAlpha = prev
 }
@@ -279,9 +340,16 @@ function drawRoofShape(ctx: CanvasRenderingContext2D, tx: number, ty: number, z:
   ctx.globalAlpha = alpha
   if (roof.flat) {
     const p = iso(tx, ty)
-    diamond(ctx, p.x, p.y - base - WALL_H)
-    ctx.fillStyle = '#5a4030cc'
-    ctx.fill()
+    const oy = p.y - base - WALL_H
+    const o = { x: p.x, y: oy }
+    const u = { x: TILE_W / 2, y: TILE_H / 2 }
+    const v = { x: -TILE_W / 2, y: TILE_H / 2 }
+    diamond(ctx, p.x, oy)
+    if (!fillTex(ctx, texRoof, o, u, v)) {
+      ctx.fillStyle = '#5a4030cc'
+      ctx.fill()
+    }
+    diamond(ctx, p.x, oy)
     ctx.strokeStyle = '#00000033'
     ctx.lineWidth = 0.5
     ctx.stroke()
@@ -316,8 +384,22 @@ function drawRoofShape(ctx: CanvasRenderingContext2D, tx: number, ty: number, z:
     ctx.lineTo(pts[2].x, pts[2].y)
     ctx.lineTo(pts[3].x, pts[3].y)
     ctx.closePath()
-    ctx.fillStyle = roof.corner ? '#7a5538dd' : '#6a4a30dd'
-    ctx.fill()
+    ctx.save()
+    ctx.clip()
+    const o = pts[0]
+    const u = { x: pts[1].x - pts[0].x, y: pts[1].y - pts[0].y }
+    const v = { x: pts[3].x - pts[0].x, y: pts[3].y - pts[0].y }
+    if (!fillTex(ctx, texRoof, o, u, v, false)) {
+      ctx.fillStyle = roof.corner ? '#7a5538dd' : '#6a4a30dd'
+      ctx.fill()
+    }
+    ctx.restore()
+    ctx.beginPath()
+    ctx.moveTo(pts[0].x, pts[0].y)
+    ctx.lineTo(pts[1].x, pts[1].y)
+    ctx.lineTo(pts[2].x, pts[2].y)
+    ctx.lineTo(pts[3].x, pts[3].y)
+    ctx.closePath()
     ctx.strokeStyle = '#00000044'
     ctx.lineWidth = 0.6
     ctx.stroke()
@@ -350,14 +432,18 @@ export function drawObjectBox(ctx: CanvasRenderingContext2D, ax: number, ay: num
   const base = levelY(z)
   const img = objImgs[typeIdx][rot]
   if (ready(img)) {
-    const tune = OBJ_TUNE[spec.id]
     const c = iso((ax + mx) / 2, (ay + my) / 2)
-    const south = iso(mx, my)
-    const dw = img.naturalWidth * tune.s
-    const dh = img.naturalHeight * tune.s * OBJ_SQUASH
+    const span = mx - ax + my - ay
+    // scale so the sprite fills its share of the footprint's iso width
+    const dw = OBJ_FILL[spec.id] * span * (TILE_W / 2)
+    // wall drop is already true screen-vertical pixels; only its diamond needs re-ratioing
+    const wallPx = img.naturalHeight - img.naturalWidth * KENNEY_DIAMOND_RATIO
+    const dh = dw * (TILE_H / TILE_W) + wallPx * (dw / img.naturalWidth)
+    // the footprint's south vertex sits this far below its centre, regardless of fill
+    const foot = c.y - base + span * (TILE_H / 4)
     const prev = ctx.globalAlpha
     ctx.globalAlpha = alpha
-    ctx.drawImage(img, c.x - dw / 2, south.y - base - dh + tune.dy, dw, dh)
+    ctx.drawImage(img, c.x - dw / 2, foot - dh, dw, dh)
     ctx.globalAlpha = prev
     return
   }
@@ -581,10 +667,17 @@ export function render(
       const base = levelY(pz)
       if (pe.ghost && pe.floor != null) {
         const p = iso(pe.x, pe.y)
-        diamond(ctx, p.x, p.y - base)
+        const oy = p.y - base
+        diamond(ctx, p.x, oy)
         ctx.globalAlpha = 0.3
-        ctx.fillStyle = TILE_COLOR[pe.floor] || '#444'
-        ctx.fill()
+        const img = texFloor[pe.floor]
+        const o = { x: p.x, y: oy }
+        const u = { x: TILE_W / 2, y: TILE_H / 2 }
+        const v = { x: -TILE_W / 2, y: TILE_H / 2 }
+        if (!img || !fillTex(ctx, img, o, u, v)) {
+          ctx.fillStyle = TILE_COLOR[pe.floor] || '#444'
+          ctx.fill()
+        }
         ctx.globalAlpha = 1
         continue
       }

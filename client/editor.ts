@@ -10,6 +10,8 @@ import {
 } from '../shared/world.ts'
 import { render, resize, screenToWorld, type Cam, type PreviewEdge } from './render.ts'
 import { clearVisionCache } from './vision.ts'
+import { startMaterials } from './materials.ts'
+import { tilesFor, emptyCatalog, type Catalog } from '../shared/materials.ts'
 
 type Tool = 'select' | 'wall' | 'door' | 'window' | 'floor' | 'object' | 'roof' | 'slope' | 'stairs' | 'erase'
 type EdgeHit = { x: number; y: number; dir: 'N' | 'W' }
@@ -47,6 +49,10 @@ export function startEditor() {
     bar = document.createElement('div')
     bar.id = 'editor-bar'
     bar.innerHTML = `
+      <div id="eb-mode">
+        <button id="eb-map" class="on">map</button>
+        <button id="eb-materials">materials</button>
+      </div>
       <div id="eb-level">
         <button id="eb-z-down">[</button>
         <span id="eb-z-label">level 0</span>
@@ -81,7 +87,7 @@ export function startEditor() {
         border: 1px solid #555; padding: 5px 8px;
       }
       #editor-bar button.on { background: #5a4030; border-color: #8a6a50; }
-      #eb-tools, #eb-floors, #eb-objects, #eb-save, #eb-level { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      #eb-tools, #eb-floors, #eb-objects, #eb-save, #eb-level, #eb-mode { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
       #eb-msg { width: 100%; color: #888; }
       #eb-z-label { min-width: 70px; text-align: center; }
     `
@@ -98,6 +104,9 @@ export function startEditor() {
   const mapsEl = document.getElementById('eb-maps') as HTMLSelectElement
 
   let tool: Tool = 'select'
+  let view: 'map' | 'materials' = 'map'
+  let catalog: Catalog = emptyCatalog()
+  const mats = startMaterials()
   let floorType = WOOD
   let objType = 0
   let objRot = 0
@@ -173,6 +182,33 @@ export function startEditor() {
   }
   rebuildTools()
   updateZLabel()
+
+  function setView(v: 'map' | 'materials') {
+    view = v
+    document.getElementById('eb-map').className = v === 'map' ? 'on' : ''
+    document.getElementById('eb-materials').className = v === 'materials' ? 'on' : ''
+    const mapBits = ['eb-level', 'eb-tools', 'eb-floors', 'eb-objects', 'eb-save']
+    for (const id of mapBits) {
+      const el = document.getElementById(id)
+      if (id === 'eb-floors' || id === 'eb-objects') continue
+      el.style.display = v === 'map' ? 'flex' : 'none'
+    }
+    if (v === 'map') {
+      floorsEl.style.display = tool === 'floor' ? 'flex' : 'none'
+      objectsEl.style.display = tool === 'object' ? 'flex' : 'none'
+      canvas.style.display = 'block'
+      mats.hide()
+      resize(canvas)
+    } else {
+      floorsEl.style.display = 'none'
+      objectsEl.style.display = 'none'
+      canvas.style.display = 'none'
+      mats.show().then(() => { catalog = mats.catalog })
+    }
+  }
+  document.getElementById('eb-map').onclick = () => setView('map')
+  document.getElementById('eb-materials').onclick = () => setView('materials')
+  fetch('/materials').then(r => r.json()).then(c => { catalog = c })
 
   document.getElementById('eb-z-down').onclick = () => {
     editZ = Math.max(0, editZ - 1)
@@ -531,7 +567,7 @@ export function startEditor() {
   }
 
   resize(canvas)
-  onresize = () => resize(canvas)
+  onresize = () => { resize(canvas); mats.layout() }
 
   onkeydown = ev => {
     if ((ev.target as HTMLElement).tagName === 'INPUT') return
@@ -676,10 +712,10 @@ export function startEditor() {
     if (keys.left) { cam.x -= sp * dt; cam.y += sp * dt }
     if (keys.right) { cam.x += sp * dt; cam.y -= sp * dt }
     preview = buildPreview()
-    render(ctx, world, cam, [], '', now, null, cam.x, cam.y, preview, editZ, editZ)
+    if (view === 'map') render(ctx, world, cam, [], '', now, null, cam.x, cam.y, preview, editZ, editZ)
     requestAnimationFrame(frame)
   }
   requestAnimationFrame(frame)
   setMsg('click any placed object to select · R rotate · drag copy · ctrl+z undo · [ ] level · wasd pan')
-  ;(window as any).G = { world, cam, get z() { return editZ }, get sel() { return selection } }
+  ;(window as any).G = { world, cam, get z() { return editZ }, get sel() { return selection }, get catalog() { return catalog }, tilesFor: (k) => tilesFor(catalog, k) }
 }
