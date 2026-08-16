@@ -30,7 +30,12 @@ export function emptyCatalog(): Catalog {
 }
 
 export function tilesFor(cat: Catalog, kind: Category) {
-  return cat.tiles.filter(t => t.categories.includes(kind))
+  const tagged = new Set(
+    cat.tiles.filter(t => (t.categories || []).includes(kind)).map(t => t.tilemapId + ':' + t.group)
+  )
+  return cat.tiles.filter(t =>
+    (t.categories || []).includes(kind) || tagged.has(t.tilemapId + ':' + t.group)
+  )
 }
 
 export const GROUP_COLORS = ['#e07040', '#44aaff', '#5d5', '#dd4', '#c68', '#6ac', '#fa4', '#a7f']

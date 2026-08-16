@@ -223,7 +223,7 @@ export function startMaterials() {
         <div>${px},${py} ${tm0 ? tm0.tileSize + '×' + tm0.tileSize : ''}</div>
         <label>description</label>
         <textarea id="mat-desc">${tile.description || ''}</textarea>
-        <label>applies to</label>
+        <label>applies to (whole group)</label>
         ${CATEGORIES.map(k => `<label class="chk"><input type="checkbox" data-cat="${k}" ${tile.categories.includes(k) ? 'checked' : ''}> ${k}</label>`).join('')}
       `
       const desc = insp.querySelector('#mat-desc') as HTMLTextAreaElement
@@ -231,8 +231,12 @@ export function startMaterials() {
       insp.querySelectorAll('input[data-cat]').forEach((box: HTMLInputElement) => {
         box.onchange = async () => {
           const k = box.dataset.cat as Category
-          if (box.checked) { if (!tile.categories.includes(k)) tile.categories.push(k) }
-          else tile.categories = tile.categories.filter(x => x !== k)
+          const peers = cat.tiles.filter(t => t.group === tile.group && t.tilemapId === tile.tilemapId)
+          for (const t of peers) {
+            t.categories = t.categories || []
+            if (box.checked) { if (!t.categories.includes(k)) t.categories.push(k) }
+            else t.categories = t.categories.filter(x => x !== k)
+          }
           await saveCat()
         }
       })

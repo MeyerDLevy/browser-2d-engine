@@ -99,15 +99,15 @@ export function startEditor() {
       }
       #eb-picker {
         position: absolute; top: 56px; left: 12px;
-        max-width: min(560px, calc(100vw - 24px)); max-height: 380px;
+        width: min(560px, calc(100vw - 24px)); max-height: 380px;
         overflow: auto; padding: 8px;
         background: #1a1816; border: 1px solid #666;
-        display: grid; grid-template-columns: repeat(auto-fill, 40px); gap: 4px;
-        align-content: start;
+        display: flex; flex-wrap: wrap; gap: 4px; align-content: start;
+        box-sizing: border-box; z-index: 21;
       }
       #eb-picker button { padding: 2px; width: 40px; height: 40px; }
       #eb-picker img { width: 36px; height: 36px; image-rendering: pixelated; background: #111; }
-      #eb-picker .eb-empty { grid-column: 1 / -1; color: #888; font: 13px ui-monospace, Consolas, monospace; }
+      #eb-picker .eb-empty { width: 100%; color: #888; font: 13px ui-monospace, Consolas, monospace; }
       #eb-msg { width: 100%; color: #888; }
       #eb-z-label { min-width: 70px; text-align: center; }
     `
@@ -145,15 +145,15 @@ export function startEditor() {
       }
       #eb-picker {
         position: absolute; top: 56px; left: 12px;
-        max-width: min(560px, calc(100vw - 24px)); max-height: 380px;
+        width: min(560px, calc(100vw - 24px)); max-height: 380px;
         overflow: auto; padding: 8px;
         background: #1a1816; border: 1px solid #666;
-        display: grid; grid-template-columns: repeat(auto-fill, 40px); gap: 4px;
-        align-content: start;
+        display: flex; flex-wrap: wrap; gap: 4px; align-content: start;
+        box-sizing: border-box; z-index: 21;
       }
       #eb-picker button { padding: 2px; width: 40px; height: 40px; }
       #eb-picker img { width: 36px; height: 36px; image-rendering: pixelated; background: #111; }
-      #eb-picker .eb-empty { grid-column: 1 / -1; color: #888; font: 13px ui-monospace, Consolas, monospace; }
+      #eb-picker .eb-empty { width: 100%; color: #888; font: 13px ui-monospace, Consolas, monospace; }
     `
     document.head.appendChild(extra)
   }
@@ -243,6 +243,7 @@ export function startEditor() {
   }
 
   function openPicker(kind: Category) {
+    catalog = mats.catalog
     pickerEl.innerHTML = ''
     const tiles = tilesFor(catalog, kind)
     if (!tiles.length) {
