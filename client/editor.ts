@@ -90,8 +90,24 @@ export function startEditor() {
       }
       #editor-bar button.on { background: #5a4030; border-color: #8a6a50; }
       #eb-tools, #eb-floors, #eb-objects, #eb-mats, #eb-save, #eb-level, #eb-mode { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-      #eb-mats button { padding: 3px 5px; }
-      #eb-mats img { width: 32px; height: 32px; image-rendering: pixelated; vertical-align: middle; background: #111; }
+      #eb-objects button.eb-sq, #eb-mats button.eb-sq {
+        padding: 2px; width: 40px; height: 40px; line-height: 0;
+      }
+      .eb-sq img { width: 36px; height: 36px; object-fit: contain; image-rendering: pixelated; background: #111; }
+      #eb-picker-bg {
+        display: none; position: fixed; inset: 0; z-index: 20; background: #0006;
+      }
+      #eb-picker {
+        position: absolute; top: 56px; left: 12px;
+        max-width: min(560px, calc(100vw - 24px)); max-height: 380px;
+        overflow: auto; padding: 8px;
+        background: #1a1816; border: 1px solid #666;
+        display: grid; grid-template-columns: repeat(auto-fill, 40px); gap: 4px;
+        align-content: start;
+      }
+      #eb-picker button { padding: 2px; width: 40px; height: 40px; }
+      #eb-picker img { width: 36px; height: 36px; image-rendering: pixelated; background: #111; }
+      #eb-picker .eb-empty { grid-column: 1 / -1; color: #888; font: 13px ui-monospace, Consolas, monospace; }
       #eb-msg { width: 100%; color: #888; }
       #eb-z-label { min-width: 70px; text-align: center; }
     `
@@ -109,6 +125,39 @@ export function startEditor() {
     matsEl.style.display = 'none'
     objectsEl.after(matsEl)
   }
+  let pickerBg = document.getElementById('eb-picker-bg')
+  if (!pickerBg) {
+    pickerBg = document.createElement('div')
+    pickerBg.id = 'eb-picker-bg'
+    pickerBg.innerHTML = '<div id="eb-picker"></div>'
+    document.body.appendChild(pickerBg)
+  }
+  if (!document.getElementById('eb-picker-css')) {
+    const extra = document.createElement('style')
+    extra.id = 'eb-picker-css'
+    extra.textContent = `
+      #eb-objects button.eb-sq, #eb-mats button.eb-sq {
+        padding: 2px; width: 40px; height: 40px; line-height: 0;
+      }
+      .eb-sq img { width: 36px; height: 36px; object-fit: contain; image-rendering: pixelated; background: #111; }
+      #eb-picker-bg {
+        display: none; position: fixed; inset: 0; z-index: 20; background: #0006;
+      }
+      #eb-picker {
+        position: absolute; top: 56px; left: 12px;
+        max-width: min(560px, calc(100vw - 24px)); max-height: 380px;
+        overflow: auto; padding: 8px;
+        background: #1a1816; border: 1px solid #666;
+        display: grid; grid-template-columns: repeat(auto-fill, 40px); gap: 4px;
+        align-content: start;
+      }
+      #eb-picker button { padding: 2px; width: 40px; height: 40px; }
+      #eb-picker img { width: 36px; height: 36px; image-rendering: pixelated; background: #111; }
+      #eb-picker .eb-empty { grid-column: 1 / -1; color: #888; font: 13px ui-monospace, Consolas, monospace; }
+    `
+    document.head.appendChild(extra)
+  }
+  const pickerEl = document.getElementById('eb-picker')
   const msgEl = document.getElementById('eb-msg')
   const zLabel = document.getElementById('eb-z-label')
   const nameEl = document.getElementById('eb-name') as HTMLInputElement
@@ -164,8 +213,62 @@ export function startEditor() {
     const kind = matTool()
     floorsEl.style.display = tool === 'floor' ? 'flex' : 'none'
     objectsEl.style.display = tool === 'object' ? 'flex' : 'none'
-    matsEl.style.display = kind ? 'flex' : 'none'
+    matsEl.style.display = kind && kind !== 'object' ? 'flex' : 'none'
   }
+
+  function closePicker() {
+    pickerBg.style.display = 'none'
+  }
+
+  function tileThumb(id: string) {
+    const img = document.createElement('img')
+    img.src = '/materials/tiles/' + id
+    img.width = 36
+    img.height = 36
+    img.style.imageRendering = 'pixelated'
+    return img
+  }
+
+  function swatchBtn(kind: Category) {
+    const b = document.createElement('button')
+    b.className = 'eb-sq' + (picked[kind] ? ' on' : '')
+    b.title = kind + ' texture'
+    if (picked[kind]) b.appendChild(tileThumb(picked[kind]))
+    else b.style.background = 'repeating-conic-gradient(#333 0% 25%, #222 0% 50%) 0 0 / 12px 12px'
+    b.onclick = ev => {
+      ev.stopPropagation()
+      openPicker(kind)
+    }
+    return b
+  }
+
+  function openPicker(kind: Category) {
+    pickerEl.innerHTML = ''
+    const tiles = tilesFor(catalog, kind)
+    if (!tiles.length) {
+      const s = document.createElement('div')
+      s.className = 'eb-empty'
+      s.textContent = 'no ' + kind + ' tiles — tag some in materials'
+      pickerEl.appendChild(s)
+    }
+    for (const t of tiles) {
+      const b = document.createElement('button')
+      b.className = picked[kind] === t.id ? 'on' : ''
+      b.title = t.description || t.group + ' ' + t.n
+      b.appendChild(tileThumb(t.id))
+      b.onclick = ev => {
+        ev.stopPropagation()
+        picked[kind] = t.id
+        if (kind === 'object') useMatObj = true
+        closePicker()
+        rebuildTools()
+      }
+      pickerEl.appendChild(b)
+    }
+    pickerBg.style.display = 'block'
+  }
+  pickerBg.onclick = () => closePicker()
+  pickerEl.onclick = ev => ev.stopPropagation()
 
   function rebuildTools() {
     const tools: [Tool, string][] = [
@@ -181,6 +284,7 @@ export function startEditor() {
       b.className = tool === id ? 'on' : ''
       b.onclick = () => {
         tool = id
+        closePicker()
         rebuildTools()
       }
       toolsEl.appendChild(b)
@@ -196,39 +300,18 @@ export function startEditor() {
     objectsEl.innerHTML = ''
     OBJ_TYPES.forEach((o, i) => {
       const b = document.createElement('button')
-      b.textContent = o.id + (i === objType && !useMatObj ? ' ' + DIR_NAMES[objRot] : '')
-      b.className = !useMatObj && objType === i ? 'on' : ''
-      b.onclick = () => { objType = i; useMatObj = false; delete picked.object; rebuildTools() }
+      b.className = 'eb-sq' + (!useMatObj && objType === i ? ' on' : '')
+      b.title = o.id + (i === objType && !useMatObj ? ' ' + DIR_NAMES[objRot] : '')
+      const img = document.createElement('img')
+      img.src = `/assets/objects/${o.id}_${i === objType ? objRot : 0}.png`
+      b.appendChild(img)
+      b.onclick = () => { objType = i; useMatObj = false; delete picked.object; closePicker(); rebuildTools() }
       objectsEl.appendChild(b)
     })
+    objectsEl.appendChild(swatchBtn('object'))
     matsEl.innerHTML = ''
     const kind = matTool()
-    if (kind) {
-      const tiles = tilesFor(catalog, kind)
-      if (!tiles.length) {
-        const s = document.createElement('span')
-        s.textContent = 'no ' + kind + ' tiles — tag some in materials'
-        s.style.color = '#888'
-        matsEl.appendChild(s)
-      }
-      for (const t of tiles) {
-        const b = document.createElement('button')
-        b.className = picked[kind] === t.id ? 'on' : ''
-        b.title = t.description || t.group + ' ' + t.n
-        const img = document.createElement('img')
-        img.src = '/materials/tiles/' + t.id
-        img.width = 32
-        img.height = 32
-        img.style.imageRendering = 'pixelated'
-        b.appendChild(img)
-        b.onclick = () => {
-          picked[kind] = t.id
-          if (kind === 'object') useMatObj = true
-          rebuildTools()
-        }
-        matsEl.appendChild(b)
-      }
-    }
+    if (kind && kind !== 'object') matsEl.appendChild(swatchBtn(kind))
     showPickers()
   }
   rebuildTools()
@@ -254,6 +337,7 @@ export function startEditor() {
       floorsEl.style.display = 'none'
       objectsEl.style.display = 'none'
       matsEl.style.display = 'none'
+      closePicker()
       canvas.style.display = 'none'
       mats.show().then(() => { catalog = mats.catalog })
     }
@@ -677,6 +761,11 @@ export function startEditor() {
 
   onkeydown = ev => {
     if ((ev.target as HTMLElement).tagName === 'INPUT') return
+    if (ev.code === 'Escape' && pickerBg.style.display === 'block') {
+      closePicker()
+      ev.preventDefault()
+      return
+    }
     if (ev.code === 'BracketLeft') {
       editZ = Math.max(0, editZ - 1); selection = null; updateZLabel(); clearVisionCache()
     }
