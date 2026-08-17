@@ -13,6 +13,7 @@ import { render, resize, screenToWorld, type Cam, type PreviewEdge } from './ren
 import { clearVisionCache } from './vision.ts'
 import { startMaterials } from './materials.ts'
 import { tilesFor, emptyCatalog, CATEGORIES, type Catalog, type Category } from '../shared/materials.ts'
+import { layoutHouse, stampBuilding, stampTown, ROOM_MIN, SLOPE } from '../shared/buildings.ts'
 
 type Tool = 'select' | 'wall' | 'door' | 'window' | 'floor' | 'object' | 'roof' | 'slope' | 'stairs' | 'erase'
 type EdgeHit = { x: number; y: number; dir: 'N' | 'W' }
@@ -175,6 +176,7 @@ export function startEditor() {
   let editZ = 0
   let stairDir = DIR_N
   let world: World = makeWorld(1, MAP_SIZE, false)
+  stampTown(world)
   const cam: Cam = { x: MAP_SIZE / 2, y: MAP_SIZE / 2, zoom: 0.8 }
   const keys = { up: false, down: false, left: false, right: false }
   let drag: { start: EdgeHit; cur: EdgeHit } = null
@@ -382,6 +384,7 @@ export function startEditor() {
   document.getElementById('eb-town').onclick = () => {
     pushUndo()
     world = makeWorld(1, MAP_SIZE, false)
+    stampTown(world)
     selection = null
     clearVisionCache()
     setMsg('procedural town')
@@ -919,5 +922,23 @@ export function startEditor() {
   }
   requestAnimationFrame(frame)
   setMsg('click any placed object to select · R rotate · drag copy · ctrl+z undo · [ ] level · wasd pan')
-  ;(window as any).G = { world, cam, get z() { return editZ }, get sel() { return selection }, get catalog() { return catalog }, tilesFor: (k) => tilesFor(catalog, k), picked }
+  ;(window as any).G = {
+    get world() { return world },
+    cam,
+    get z() { return editZ },
+    get sel() { return selection },
+    get catalog() { return catalog },
+    tilesFor: (k) => tilesFor(catalog, k),
+    picked,
+    ROOM_MIN,
+    SLOPE,
+    layoutHouse,
+    stampBuilding,
+    stampTown,
+    stampHouse: (ox: number, oy: number, seed = 1) => {
+      stampBuilding(world, ox, oy, editZ, layoutHouse(seed))
+      clearVisionCache()
+    },
+    fillTown: () => { stampTown(world); clearVisionCache() },
+  }
 }

@@ -119,10 +119,6 @@ export function cellKey(x: number, y: number, z = 0) {
   return Math.floor(x) + ',' + Math.floor(y) + ',' + Math.floor(z)
 }
 
-function inBuilding(bx: number, by: number) {
-  return bx >= 5 && bx <= 15 && by >= 5 && by <= 15
-}
-
 export function genFloor(x: number, y: number, seed: number, mapSize: number, blank: boolean) {
   if (x < 0 || y < 0 || x >= mapSize || y >= mapSize) return WATER
   if (blank) return GRASS
@@ -130,7 +126,6 @@ export function genFloor(x: number, y: number, seed: number, mapSize: number, bl
   const bx = x % block
   const by = y % block
   if (bx === 0 || by === 0) return ROAD
-  if (inBuilding(bx, by)) return WOOD
   const pond = hash(Math.floor(x / 8), Math.floor(y / 8), seed)
   if (pond % 37 === 0) return WATER
   return GRASS
@@ -147,53 +142,16 @@ export function setTile(w: World, x: number, y: number, t: number, z = 0) {
   w.floors.set(cellKey(x, y, z), t)
 }
 
-function genEdgeN(x: number, y: number, seed: number, mapSize: number, blank: boolean) {
-  if (blank || x < 0 || y < 0 || x >= mapSize || y >= mapSize) return EDGE_NONE
-  const block = 20
-  const bx = x % block
-  const by = y % block
-  if (bx >= 5 && bx <= 15 && by === 5) {
-    if (bx === 8 || bx === 12) return EDGE_WINDOW
-    return EDGE_WALL
-  }
-  if (bx >= 5 && bx <= 15 && by === 16) {
-    if (bx === 10) return EDGE_DOOR
-    if (bx === 7 || bx === 13) return EDGE_WINDOW
-    return EDGE_WALL
-  }
-  return EDGE_NONE
-}
-
-function genEdgeW(x: number, y: number, seed: number, mapSize: number, blank: boolean) {
-  if (blank || x < 0 || y < 0 || x >= mapSize || y >= mapSize) return EDGE_NONE
-  const block = 20
-  const bx = x % block
-  const by = y % block
-  if (by >= 5 && by <= 15 && bx === 5) {
-    if (by === 8 || by === 12) return EDGE_WINDOW
-    return EDGE_WALL
-  }
-  if (by >= 5 && by <= 15 && bx === 16) {
-    if (by === 8 || by === 12) return EDGE_WINDOW
-    return EDGE_WALL
-  }
-  return EDGE_NONE
-}
-
 export function edgeN(w: World, x: number, y: number, z = 0) {
-  const ix = Math.floor(x), iy = Math.floor(y)
-  const k = cellKey(ix, iy, z)
+  const k = cellKey(x, y, z)
   if (w.edgesN.has(k)) return w.edgesN.get(k)
-  if (z !== 0) return EDGE_NONE
-  return genEdgeN(ix, iy, w.seed, w.mapSize, w.blank)
+  return EDGE_NONE
 }
 
 export function edgeW(w: World, x: number, y: number, z = 0) {
-  const ix = Math.floor(x), iy = Math.floor(y)
-  const k = cellKey(ix, iy, z)
+  const k = cellKey(x, y, z)
   if (w.edgesW.has(k)) return w.edgesW.get(k)
-  if (z !== 0) return EDGE_NONE
-  return genEdgeW(ix, iy, w.seed, w.mapSize, w.blank)
+  return EDGE_NONE
 }
 
 export function setEdgeN(w: World, x: number, y: number, e: number, z = 0) {
@@ -289,10 +247,6 @@ export function getRoof(w: World, x: number, y: number, z = 0) {
   const k = cellKey(ix, iy, z)
   if (w.noRoof.has(k)) return null
   if (w.roofs.has(k)) return unpackRoof(w.roofs.get(k))
-  if (z !== 0 || w.blank) return null
-  const block = 20
-  const bx = ix % block, by = iy % block
-  if (inBuilding(bx, by)) return { kind: ROOF_SLOPE, dir: 0, step: -1, flat: true, corner: false }
   return null
 }
 

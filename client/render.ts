@@ -71,9 +71,34 @@ const OBJ_FILL: Record<string, number> = {
   bed: 0.85,
   table: 0.95,
 }
-// Kenney art's ground diamond is height:width 0.702, ours is TILE_H/TILE_W=0.5;
-// only the diamond (roof + base point) needs re-ratioing, not the vertical wall drop below it
-const KENNEY_DIAMOND_RATIO = 0.702
+
+const southFrac = new Map<HTMLImageElement, number>()
+function spriteSouthFrac(img: HTMLImageElement) {
+  let f = southFrac.get(img)
+  if (f != null) return f
+  const cv = document.createElement('canvas')
+  cv.width = img.naturalWidth
+  cv.height = img.naturalHeight
+  const g = cv.getContext('2d')
+  g.drawImage(img, 0, 0)
+  const data = g.getImageData(0, 0, cv.width, cv.height).data
+  for (let y = cv.height - 1; y >= 0; y--) {
+    let min = cv.width, max = -1
+    for (let x = 0; x < cv.width; x++) {
+      if (data[(y * cv.width + x) * 4 + 3] > 8) {
+        if (x < min) min = x
+        if (x > max) max = x
+      }
+    }
+    if (max >= 0) {
+      f = (min + max) / 2 / cv.width
+      southFrac.set(img, f)
+      return f
+    }
+  }
+  southFrac.set(img, 0.5)
+  return 0.5
+}
 
 const animClock = new Map<string, { anim: string; t0: number }>()
 
@@ -450,18 +475,15 @@ export function drawObjectBox(ctx: CanvasRenderingContext2D, ax: number, ay: num
   const base = levelY(z)
   const img = objImgs[typeIdx][rot]
   if (ready(img)) {
-    const c = iso((ax + mx) / 2, (ay + my) / 2)
     const span = mx - ax + my - ay
-    // scale so the sprite fills its share of the footprint's iso width
     const dw = OBJ_FILL[spec.id] * span * (TILE_W / 2)
-    // wall drop is already true screen-vertical pixels; only its diamond needs re-ratioing
-    const wallPx = img.naturalHeight - img.naturalWidth * KENNEY_DIAMOND_RATIO
-    const dh = dw * (TILE_H / TILE_W) + wallPx * (dw / img.naturalWidth)
-    // the footprint's south vertex sits this far below its centre, regardless of fill
-    const foot = c.y - base + span * (TILE_H / 4)
+    const dh = dw * (img.naturalHeight / img.naturalWidth)
+    const south = iso(mx, my)
+    const foot = south.y - base
     const prev = ctx.globalAlpha
     ctx.globalAlpha = alpha
-    ctx.drawImage(img, c.x - dw / 2, foot - dh, dw, dh)
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(img, south.x - spriteSouthFrac(img) * dw, foot - dh, dw, dh)
     ctx.globalAlpha = prev
     return
   }

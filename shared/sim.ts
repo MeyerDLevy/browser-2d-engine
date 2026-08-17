@@ -2,6 +2,7 @@ import {
   INTEREST, MAX_Z, getTile, hash, isSolid, edgeBlocks, edgeN, edgeW,
   getStairs, dirDelta, makeWorld, ROAD, objectBlocks,
 } from './world.ts'
+import { stampTown } from './buildings.ts'
 import {
   ENTER_RANGE, ITEM_TYPES, INV_MAX, MELEE_DMG, MELEE_RANGE, PICKUP_RANGE,
   PLAYER_COLORS, PLAYER_R, PLAYER_SPEED, VEHICLE_SPEED,
@@ -16,6 +17,7 @@ export function nid(s: GameState, prefix: string) {
 
 export function createGame(seed: number, mapSize: number, blank = false): GameState {
   const world = makeWorld(seed, mapSize, blank)
+  if (!blank) stampTown(world)
   const s: GameState = { world, entities: new Map(), nextId: 1 }
   const cx = Math.floor(mapSize / 2)
   const cy = Math.floor(mapSize / 2)
