@@ -14,9 +14,9 @@ const FRAME = 128
 const SCALE = 0.85
 const FEET_X = 64
 const FEET_Y = 96
-export const WALL_H = 44
+export const WALL_H = 88
 export const LEVEL_H = WALL_H
-const CUT_H = 4
+const CUT_H = 8
 const ANIMS = {
   stance: { col: 0, frames: 4, ms: 800, loop: 'pong' as const },
   run: { col: 4, frames: 8, ms: 533, loop: 'loop' as const },

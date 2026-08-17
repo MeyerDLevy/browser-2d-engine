@@ -13,7 +13,7 @@ import { render, resize, screenToWorld, type Cam, type PreviewEdge } from './ren
 import { clearVisionCache } from './vision.ts'
 import { startMaterials } from './materials.ts'
 import { tilesFor, emptyCatalog, CATEGORIES, type Catalog, type Category } from '../shared/materials.ts'
-import { layoutHouse, stampBuilding, stampTown, ROOM_MIN, SLOPE } from '../shared/buildings.ts'
+import { layoutHouse, stampBuilding, stampTown, stampSidewalk, plotsForBlock, ROOM_MIN, SLOPE } from '../shared/buildings.ts'
 
 type Tool = 'select' | 'wall' | 'door' | 'window' | 'floor' | 'object' | 'roof' | 'slope' | 'stairs' | 'erase'
 type EdgeHit = { x: number; y: number; dir: 'N' | 'W' }
@@ -935,10 +935,14 @@ export function startEditor() {
     layoutHouse,
     stampBuilding,
     stampTown,
-    stampHouse: (ox: number, oy: number, seed = 1) => {
-      stampBuilding(world, ox, oy, editZ, layoutHouse(seed))
+    stampHouse: (ox: number, oy: number, seed = 1, maxW = 10, maxH = 10, front: 'N' | 'E' | 'S' | 'W' = 'S') => {
+      const b = layoutHouse(seed, maxW, maxH, front)
+      const door = stampBuilding(world, ox, oy, editZ, b, true, seed)
+      if (door) stampSidewalk(world, door, editZ)
       clearVisionCache()
+      return b
     },
     fillTown: () => { stampTown(world); clearVisionCache() },
+    plotsForBlock,
   }
 }
