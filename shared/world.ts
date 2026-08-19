@@ -61,6 +61,7 @@ export type World = {
   noRoof: Set<string>
   objects: Map<string, number>
   skins: Map<string, string>
+  sites?: any[]
 }
 
 export type MapData = {
@@ -76,6 +77,7 @@ export type MapData = {
   noRoof?: string[]
   objects?: [string, number][]
   skins?: [string, string][]
+  sites?: any[]
 }
 
 export function makeWorld(seed = 1, mapSize = MAP_SIZE, blank = false): World {
@@ -361,6 +363,7 @@ export function serializeMap(w: World): MapData {
     noRoof: [...w.noRoof],
     objects: [...w.objects.entries()],
     skins: [...(w.skins || new Map()).entries()],
+    sites: w.sites || [],
   }
 }
 
@@ -393,6 +396,7 @@ export function applyMap(w: World, data: MapData) {
     w.objects = new Map(data.objects || [])
     w.skins = new Map(data.skins || [])
   }
+  w.sites = data.sites || []
 }
 
 export function worldFromMap(data: MapData): World {

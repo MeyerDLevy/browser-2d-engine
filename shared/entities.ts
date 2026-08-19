@@ -1,10 +1,11 @@
 import type { World } from './world.ts'
+import type { Town } from './town/types.ts'
 
 export type Item = { type: string; name: string }
 
 export type Entity = {
   id: string
-  kind: 'player' | 'item' | 'vehicle'
+  kind: 'player' | 'item' | 'vehicle' | 'npc'
   x: number
   y: number
   z: number
@@ -21,12 +22,16 @@ export type Entity = {
   attackCd?: number
   seq?: number
   color?: string
+  npcAction?: string
+  homeId?: string
+  jobId?: string
 }
 
 export type GameState = {
   world: World
   entities: Map<string, Entity>
   nextId: number
+  town?: Town
 }
 
 export const ITEM_TYPES = [

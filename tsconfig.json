@@ -8,5 +8,5 @@
     "esModuleInterop": true,
     "noEmit": true
   },
-  "include": ["shared", "server", "client"]
+  "include": ["shared", "server", "client", "tools"]
 }

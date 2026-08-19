@@ -3,6 +3,7 @@ import {
   getStairs, dirDelta, makeWorld, ROAD, objectBlocks,
 } from './world.ts'
 import { stampTown } from './buildings.ts'
+import { attachTown, stepTown } from './town/town.ts'
 import {
   ENTER_RANGE, ITEM_TYPES, INV_MAX, MELEE_DMG, MELEE_RANGE, PICKUP_RANGE,
   PLAYER_COLORS, PLAYER_R, PLAYER_SPEED, VEHICLE_SPEED,
@@ -17,14 +18,27 @@ export function nid(s: GameState, prefix: string) {
 
 export function createGame(seed: number, mapSize: number, blank = false): GameState {
   const world = makeWorld(seed, mapSize, blank)
-  if (!blank) stampTown(world)
+  if (!blank) {
+    const sites = stampTown(world)
+    const s: GameState = { world, entities: new Map(), nextId: 1 }
+    attachTown(s, sites)
+    spawnLoot(s)
+    return s
+  }
   const s: GameState = { world, entities: new Map(), nextId: 1 }
+  spawnLoot(s)
+  return s
+}
+
+function spawnLoot(s: GameState) {
+  const seed = s.world.seed
+  const mapSize = s.world.mapSize
   const cx = Math.floor(mapSize / 2)
   const cy = Math.floor(mapSize / 2)
   for (let i = 0; i < 80; i++) {
     let x = cx + (hash(i, 1, seed) % 200) - 100
     let y = cy + (hash(i, 2, seed) % 200) - 100
-    if (getTile(world, x, y, 0) !== ROAD) {
+    if (getTile(s.world, x, y, 0) !== ROAD) {
       x = cx + (i % 20) - 10
       y = cy
     }
@@ -32,7 +46,6 @@ export function createGame(seed: number, mapSize: number, blank = false): GameSt
     spawnItem(s, x + 0.5, y + 0.5, spec)
   }
   for (let i = 0; i < 8; i++) spawnVehicle(s, cx + 2 + i * 3 + 0.5, cy + 0.5)
-  return s
 }
 
 export function spawnItem(s: GameState, x: number, y: number, spec: Item, z = 0) {
@@ -258,6 +271,7 @@ export function step(s: GameState, inputs: Map<string, Input>, dt: number, now: 
     applyMove(s, e, input, dt)
     for (const a of input.actions) applyAction(s, e, a, now)
   }
+  stepTown(s, dt)
 }
 
 export function nearby(s: GameState, playerId: string, r = INTEREST) {

@@ -11,8 +11,22 @@
       position: absolute; padding: 10px 12px;
       background: rgba(0,0,0,.5); max-width: 280px;
     }
-    #tl { top: 0; left: 0; }
-    #tr { top: 0; right: 0; text-align: right; }
+    #inspect {
+      position: absolute; top: 52px; right: 0; width: 320px; max-height: 72vh;
+      overflow: auto; padding: 10px 12px; background: rgba(0,0,0,.62);
+      white-space: pre-wrap; display: none; pointer-events: auto;
+    }
+    #inspect.on { display: block; }
+    #hist {
+      position: absolute; bottom: 8px; right: 8px; display: none;
+      background: rgba(0,0,0,.62); padding: 8px;
+    }
+    #hist.on { display: block; }
+    #townbar {
+      position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+      padding: 8px 12px; background: rgba(0,0,0,.55); max-width: 70vw;
+      text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     #bl { bottom: 0; left: 0; }
     #br { bottom: 0; right: 0; color: #aaa; }
     #dead {
@@ -66,14 +80,19 @@
 <body>
   <canvas id="c"></canvas>
   <div id="hud">
+    <div id="townbar"></div>
     <div id="tl"></div>
     <div id="tr"></div>
+    <div id="inspect"></div>
+    <div id="hist"><canvas id="histc" width="340" height="368"></canvas></div>
     <div id="bl"></div>
     <div id="br">
       wasd move<br>
       e pickup &nbsp; g drop<br>
       space attack<br>
       f enter/exit car<br>
+      p pause &nbsp; 1/2/3/4 sim speed<br>
+      click npc inspect &nbsp; F3 needs &nbsp; F4 debug<br>
       scroll zoom<br>
       <span style="color:#666">hero: Clint Bellanger / Flare (CC-BY-SA 3.0)</span>
     </div>

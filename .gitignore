@@ -3,3 +3,4 @@ dist
 maps
 client/assets/_sample
 tmp-*
+logs

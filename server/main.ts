@@ -9,6 +9,7 @@ import { MAP_SIZE, TICK_DT, TICK_HZ, applyMap, serializeMap, type MapData } from
 import { createGame, nearby, spawnPlayer, step } from '../shared/sim.ts'
 import { emptyInput, type ClientMsg, type Input } from '../shared/protocol.ts'
 import type { GameState } from '../shared/entities.ts'
+import { attachTown, debugOverlays, findNpcByEntity, inspectNpc, needHistograms, setTownSpeed, townHud } from '../shared/town/town.ts'
 
 const PORT = Number(process.env.PORT) || 8080
 const PROD = process.env.NODE_ENV === 'production'
@@ -29,7 +30,7 @@ const build = await esbuild.context({
 if (PROD) await build.rebuild()
 else await build.watch()
 
-type Client = { id: string; input: Input }
+type Client = { id: string; input: Input; inspectId: string; hist: boolean }
 type Lobby = {
   id: string
   state: GameState
@@ -76,11 +77,19 @@ function getLobby(id: string, mapName = '') {
   id = slug(id)
   if (!lobbies.has(id)) {
     const seed = Math.floor(Math.random() * 1e9)
-    const state = createGame(seed, MAP_SIZE)
+    let state: GameState
     let mapData: MapData = null
     if (mapName) {
       mapData = loadMap(mapName)
-      if (mapData) applyMap(state.world, mapData)
+      if (mapData) {
+        state = createGame(mapData.seed || seed, mapData.mapSize || MAP_SIZE, true)
+        applyMap(state.world, mapData)
+        if (mapData.sites?.length) attachTown(state, mapData.sites)
+      }
+    }
+    if (!state) {
+      state = createGame(seed, MAP_SIZE)
+      mapData = serializeMap(state.world)
     }
     if (!mapData) mapData = serializeMap(state.world)
     const L: Lobby = {
@@ -107,6 +116,12 @@ function closeLobby(L: Lobby) {
   console.log('lobby closed', L.id)
 }
 
+function inspectPayload(L: Lobby, c: Client) {
+  if (!c.inspectId || !L.state.town) return undefined
+  const npc = findNpcByEntity(L.state.town, c.inspectId)
+  return npc ? inspectNpc(L.state.town, npc) : undefined
+}
+
 function tickLobby(L: Lobby) {
   const inputs = new Map<string, Input>()
   for (const c of L.clients.values()) inputs.set(c.id, c.input)
@@ -120,6 +135,10 @@ function tickLobby(L: Lobby) {
       tick: L.tick,
       seq: c.input.seq,
       entities: nearby(L.state, c.id),
+      town: L.state.town ? townHud(L.state.town) : undefined,
+      inspect: inspectPayload(L, c),
+      hist: c.hist && L.state.town ? needHistograms(L.state.town) : undefined,
+      debug: L.state.town?.debug ? debugOverlays(L.state.town) : undefined,
     }))
   }
 }
@@ -296,7 +315,7 @@ wss.on('connection', ws => {
       clearTimeout(L.emptyTimer)
       L.emptyTimer = null
       const p = spawnPlayer(L.state, msg.name || 'survivor')
-      client = { id: p.id, input: emptyInput() }
+      client = { id: p.id, input: emptyInput(), inspectId: '', hist: false }
       lobby = L
       L.clients.set(ws, client)
       send(ws, {
@@ -308,6 +327,17 @@ wss.on('connection', ws => {
         lobby: L.id,
         mapData: L.mapData,
       })
+      return
+    }
+    if (msg.type === 'inspect' && client) {
+      client.inspectId = msg.targetId || ''
+      client.hist = !!msg.targetId || client.hist
+      return
+    }
+    if (msg.type === 'sim' && client && lobby?.state.town) {
+      if (msg.speed != null) setTownSpeed(lobby.state.town, msg.speed)
+      if (msg.debug != null) lobby.state.town.debug = msg.debug
+      if (msg.hist != null) client.hist = msg.hist
       return
     }
     if (msg.type === 'input' && client) {

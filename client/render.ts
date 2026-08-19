@@ -633,6 +633,35 @@ function drawEntity(ctx: CanvasRenderingContext2D, d: DrawEnt, meId: string, now
     ctx.globalAlpha = 1
     return
   }
+  if (e.kind === 'npc') {
+    ctx.globalAlpha = dim
+    ctx.fillStyle = e.color || '#88c'
+    ctx.beginPath()
+    ctx.ellipse(p.x, oy + 3, 8, 4, 0, 0, Math.PI * 2)
+    ctx.globalAlpha = 0.4 * dim
+    ctx.fill()
+    ctx.globalAlpha = dim
+    if (ready(heroImg)) {
+      const row = dirRow(e.facing)
+      const col = ANIMS[d.moving ? 'run' : 'stance'].col + animFrame(e.id, d.moving ? 'run' : 'stance', now)
+      ctx.save()
+      ctx.globalAlpha = dim
+      blit(ctx, heroImg, col, row, p.x, oy)
+      ctx.restore()
+    } else {
+      prismAt(ctx, p.x, oy, 10, e.color || '#88c', '#222')
+    }
+    ctx.fillStyle = '#eee'
+    ctx.font = '10px ui-monospace, monospace'
+    ctx.textAlign = 'center'
+    ctx.fillText(e.name || '', p.x, oy - FEET_Y * SCALE - 4)
+    if (e.npcAction && e.npcAction !== 'idle') {
+      ctx.fillStyle = '#c4a35a'
+      ctx.fillText(e.npcAction, p.x, oy - FEET_Y * SCALE + 8)
+    }
+    ctx.globalAlpha = 1
+    return
+  }
   if (e.vehicleId) return
   drawPlayer(ctx, d, now, dim)
 }
@@ -650,6 +679,7 @@ export function render(
   preview: PreviewEdge[] = null,
   myZ = 0,
   maxDrawZ: number = null,
+  debug: any = null,
 ) {
   const { canvas } = ctx
   ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -799,6 +829,39 @@ export function render(
         ctx.stroke()
       } else {
         drawEdgeSeg(ctx, a, b, WALL_H, pe.kind || EDGE_WALL, 0.3, pe.mat)
+      }
+    }
+  }
+
+  if (debug) {
+    ctx.lineWidth = 1
+    if (debug.paths) {
+      for (const p of debug.paths) {
+        if (!p.path?.length) continue
+        ctx.beginPath()
+        ctx.strokeStyle = 'rgba(255,220,80,.55)'
+        ctx.moveTo(iso(p.x, p.y).x, iso(p.x, p.y).y)
+        for (const pt of p.path) ctx.lineTo(iso(pt.x, pt.y).x, iso(pt.x, pt.y).y)
+        ctx.stroke()
+      }
+    }
+    if (debug.buildings) {
+      ctx.font = '10px ui-monospace, monospace'
+      ctx.textAlign = 'center'
+      for (const b of debug.buildings) {
+        const c = iso(b.ox + b.w / 2, b.oy + b.h / 2)
+        ctx.fillStyle = 'rgba(0,0,0,.45)'
+        ctx.fillText(b.id, c.x, c.y)
+        ctx.fillStyle = '#c4a35a'
+        ctx.fillText(b.kind, c.x, c.y + 11)
+        if (b.anchors) {
+          ctx.fillStyle = '#8cf'
+          for (const k in b.anchors) {
+            const a = b.anchors[k]
+            const p = iso(a.x, a.y)
+            ctx.fillRect(p.x - 2, p.y - 2, 4, 4)
+          }
+        }
       }
     }
   }

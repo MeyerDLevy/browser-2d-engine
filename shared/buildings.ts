@@ -4,15 +4,29 @@ import {
   DIRT, GRASS, ROAD, WOOD,
   cellKey, hash, packRoof, packRoofCorner,
   CORNER_NE, CORNER_NW, CORNER_SE, CORNER_SW,
-  resolveRoofCorners, getTile, setEdgeN, setEdgeW, setRoof, setTile,
+  resolveRoofCorners, getTile, setEdgeN, setEdgeW, setRoof, setTile, setObject,
   type World,
 } from './world.ts'
+import {
+  BUILDING_SPECS, COMMERCIAL_QUOTA, MAX_HOUSES, SIM_BLOCK_RADIUS,
+  type BuildingKind,
+} from './town/config.ts'
 
 export type RoomKind = 'living' | 'kitchen' | 'bedroom' | 'bathroom' | 'hallway'
 export type Room = { kind: RoomKind; x: number; y: number; w: number; h: number }
 export type Building = { rooms: Room[]; style: string; front: Side }
 export type Side = 'N' | 'E' | 'S' | 'W'
 export type Plot = { x: number; y: number; w: number; h: number; front: Side }
+export type SimSite = {
+  kind: BuildingKind
+  ox: number
+  oy: number
+  w: number
+  h: number
+  door: { x: number; y: number; z: number }
+  anchors: Record<string, { x: number; y: number; z: number }>
+  sim: boolean
+}
 
 export const ROOM_MIN = {
   living: { w: 4, h: 4 },
@@ -596,15 +610,101 @@ export function stampBuilding(
   return door
 }
 
-/** Place a house on a plot (fits buildable area, front door + sidewalk to road). */
-export function stampPlot(world: World, plot: Plot, seed: number, z = 0) {
+function layoutCommercial(kind: BuildingKind, maxW: number, maxH: number, front: Side): Building {
+  const spec = kind === 'house' ? { size: { w: 6, h: 5 } } : BUILDING_SPECS[kind]
+  const w = Math.max(5, Math.min(maxW, spec.size.w))
+  const h = Math.max(5, Math.min(maxH, spec.size.h))
+  const rooms: Room[] = [{ kind: 'living', x: 0, y: 0, w, h }]
+  if ((kind === 'grocery' || kind === 'gas_station' || kind === 'warehouse' || kind === 'library') && h >= 7) {
+    rooms[0].h = h - 2
+    rooms.push({ kind: 'hallway', x: 0, y: h - 2, w, h: 2 })
+  }
+  return { style: kind, rooms, front }
+}
+
+function interiorSpot(ox: number, oy: number, w: number, h: number, fx: number, fy: number, z = 0) {
+  const x0 = ox + 1.2
+  const x1 = ox + w - 1.2
+  const y0 = oy + 1.2
+  const y1 = oy + h - 1.2
+  return { x: x0 + fx * (x1 - x0), y: y0 + fy * (y1 - y0), z }
+}
+
+function roomSpot(ox: number, oy: number, r: Room, fx = 0.5, fy = 0.5, z = 0) {
+  return { x: ox + r.x + 0.4 + fx * Math.max(0.2, r.w - 0.8), y: oy + r.y + 0.4 + fy * Math.max(0.2, r.h - 0.8), z }
+}
+
+function makeAnchors(kind: BuildingKind, ox: number, oy: number, w: number, h: number, rooms: Room[], door: DoorHit, z: number) {
+  const anchors: Record<string, { x: number; y: number; z: number }> = {
+    door: { x: door.x + 0.5, y: door.y + 0.5, z },
+    bed: interiorSpot(ox, oy, w, h, 0.25, 0.35, z),
+    bed2: interiorSpot(ox, oy, w, h, 0.75, 0.35, z),
+    shelf: interiorSpot(ox, oy, w, h, 0.25, 0.65, z),
+    kitchen: interiorSpot(ox, oy, w, h, 0.25, 0.85, z),
+    bathroom: interiorSpot(ox, oy, w, h, 0.85, 0.55, z),
+    couch: interiorSpot(ox, oy, w, h, 0.55, 0.55, z),
+    counter: interiorSpot(ox, oy, w, h, 0.75, 0.65, z),
+    work: interiorSpot(ox, oy, w, h, 0.75, 0.65, z),
+    backroom: interiorSpot(ox, oy, w, h, 0.85, 0.25, z),
+  }
+  const bed = rooms.filter(r => r.kind === 'bedroom')
+  const kit = rooms.find(r => r.kind === 'kitchen')
+  const bath = rooms.find(r => r.kind === 'bathroom')
+  const liv = rooms.find(r => r.kind === 'living')
+  const hall = rooms.find(r => r.kind === 'hallway')
+  if (bed[0]) anchors.bed = roomSpot(ox, oy, bed[0], 0.5, 0.5, z)
+  if (bed[1]) anchors.bed2 = roomSpot(ox, oy, bed[1], 0.5, 0.5, z)
+  else if (bed[0]) anchors.bed2 = roomSpot(ox, oy, bed[0], 0.75, 0.75, z)
+  if (kit) {
+    anchors.kitchen = roomSpot(ox, oy, kit, 0.5, 0.5, z)
+    anchors.shelf = roomSpot(ox, oy, kit, 0.2, 0.2, z)
+  }
+  if (bath) anchors.bathroom = roomSpot(ox, oy, bath, 0.5, 0.5, z)
+  if (liv) {
+    anchors.couch = roomSpot(ox, oy, liv, 0.4, 0.4, z)
+    if (kind !== 'house') {
+      anchors.counter = roomSpot(ox, oy, liv, 0.7, 0.6, z)
+      anchors.work = roomSpot(ox, oy, liv, 0.7, 0.35, z)
+      anchors.shelf = roomSpot(ox, oy, liv, 0.3, 0.6, z)
+    }
+  }
+  if (kind === 'church' && liv) {
+    anchors.work = roomSpot(ox, oy, liv, 0.5, 0.2, z)
+    anchors.counter = roomSpot(ox, oy, liv, 0.5, 0.7, z)
+  }
+  if (hall) anchors.backroom = roomSpot(ox, oy, hall, 0.5, 0.5, z)
+  return anchors
+}
+
+function furnish(world: World, kind: BuildingKind, ox: number, oy: number, rooms: Room[], z: number, seed: number) {
+  const bed = rooms.filter(r => r.kind === 'bedroom')
+  const kit = rooms.find(r => r.kind === 'kitchen')
+  const bath = rooms.find(r => r.kind === 'bathroom')
+  const liv = rooms.find(r => r.kind === 'living')
+  if (kind === 'house') {
+    if (bed[0]) setObject(world, ox + bed[0].x, oy + bed[0].y, 5, 0, z)
+    if (bed[1]) setObject(world, ox + bed[1].x, oy + bed[1].y, 5, 0, z)
+    if (kit) setObject(world, ox + kit.x, oy + kit.y, 0, 0, z)
+    if (bath) setObject(world, ox + bath.x, oy + bath.y, 3, 0, z)
+    if (liv) setObject(world, ox + liv.x, oy + liv.y, 4, 0, z)
+    return
+  }
+  if (liv) {
+    const obj = kind === 'warehouse' || kind === 'grocery' || kind === 'gas_station' ? 1 : 6
+    setObject(world, ox + liv.x + Math.min(1, liv.w - 1), oy + liv.y, obj, seed & 3, z)
+  }
+}
+
+/** Place a building on a plot (fits buildable area, front door + sidewalk to road). */
+export function stampPlot(world: World, plot: Plot, seed: number, z = 0, kind: BuildingKind = 'house'): SimSite | null {
   const buildW = plot.w - 2 * YARD
   const buildH = plot.h - 2 * YARD
-  if (buildW < 5 || buildH < 5) return
+  if (buildW < 5 || buildH < 5) return null
 
-  const building = layoutHouse(seed, buildW, buildH, plot.front)
+  const building = kind === 'house'
+    ? layoutHouse(seed, buildW, buildH, plot.front)
+    : layoutCommercial(kind, buildW, buildH, plot.front)
   const sz = sizeOf(building.rooms)
-  // center house in plot buildable area, biased toward street
   let ox = plot.x + YARD + Math.max(0, Math.floor((buildW - sz.w) / 2))
   let oy = plot.y + YARD + Math.max(0, Math.floor((buildH - sz.h) / 2))
   if (plot.front === 'N') oy = plot.y + YARD
@@ -614,16 +714,59 @@ export function stampPlot(world: World, plot: Plot, seed: number, z = 0) {
 
   const door = stampBuilding(world, ox, oy, z, building, false, seed)
   if (door) stampSidewalk(world, door, z)
+  furnish(world, kind, ox, oy, building.rooms, z, seed)
+  const hit = door || { x: ox, y: oy + sz.h, side: plot.front }
+  return {
+    kind,
+    ox, oy, w: sz.w, h: sz.h,
+    door: { x: hit.x + 0.5, y: hit.y + 0.5, z },
+    anchors: makeAnchors(kind, ox, oy, sz.w, sz.h, building.rooms, hit, z),
+    sim: false,
+  }
 }
 
-export function stampTown(world: World) {
+const OUTSIDE_KINDS: BuildingKind[] = ['gas_station', 'grocery', 'bar', 'church', 'library', 'warehouse', 'big_box', 'town_hall']
+
+export function stampTown(world: World): SimSite[] {
   const n = Math.floor(world.mapSize / BLOCK)
+  const cx = Math.floor(n / 2)
+  const cy = Math.floor(n / 2)
+  const quota = [...COMMERCIAL_QUOTA]
+  let simHouses = 0
+  const sites: SimSite[] = []
   for (let by = 0; by < n; by++) {
     for (let bx = 0; bx < n; bx++) {
       const seed = hash(bx, by, world.seed)
       const plots = plotsForBlock(bx, by, seed)
-      plots.forEach((p, i) => stampPlot(world, p, hash(seed, i, 99), 0))
+      const inSim = Math.abs(bx - cx) <= SIM_BLOCK_RADIUS && Math.abs(by - cy) <= SIM_BLOCK_RADIUS
+      plots.forEach((p, i) => {
+        const ps = hash(seed, i, 99)
+        let kind: BuildingKind = 'house'
+        let sim = false
+        if (inSim) {
+          if (quota.length) {
+            kind = quota.shift()
+            sim = true
+          } else {
+            kind = 'house'
+            sim = simHouses < MAX_HOUSES
+            if (sim) simHouses++
+          }
+        } else if (ps % 14 === 0) {
+          kind = OUTSIDE_KINDS[ps % OUTSIDE_KINDS.length]
+        }
+        const site = stampPlot(world, p, ps, 0, kind)
+        if (!site) {
+          if (inSim && kind !== 'house') quota.unshift(kind)
+          if (inSim && kind === 'house' && sim) simHouses = Math.max(0, simHouses - 1)
+          return
+        }
+        site.sim = sim
+        sites.push(site)
+      })
     }
   }
   resolveRoofCorners(world, 0)
+  world.sites = sites
+  return sites
 }

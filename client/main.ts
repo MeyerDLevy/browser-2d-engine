@@ -2,8 +2,37 @@ import { MAP_SIZE, TICK_HZ, applyMap, makeWorld, type World } from '../shared/wo
 import { applyMove } from '../shared/sim.ts'
 import { emptyInput, type ServerMsg } from '../shared/protocol.ts'
 import type { Entity, GameState } from '../shared/entities.ts'
-import { render, resize, type Cam, type DrawEnt } from './render.ts'
+import { render, resize, screenToWorld, type Cam, type DrawEnt } from './render.ts'
 import { visibleTiles } from './vision.ts'
+import type { NeedHist, NpcInspect, TownHud } from '../shared/town/types.ts'
+
+function drawHist(canvas: HTMLCanvasElement, hist: NeedHist[]) {
+  const ctx = canvas.getContext('2d')
+  const w = canvas.width, h = canvas.height
+  ctx.clearRect(0, 0, w, h)
+  const rowH = h / hist.length
+  const bw = (w - 10) / 10
+  for (let i = 0; i < hist.length; i++) {
+    const row = hist[i]
+    const max = Math.max(1, ...row.counts)
+    const top = i * rowH
+    const bot = top + rowH - 4
+    ctx.fillStyle = '#ddd'
+    ctx.font = '12px ui-monospace, monospace'
+    ctx.textAlign = 'left'
+    ctx.fillText(row.need + ' (avg ' + row.avg.toFixed(0) + ')', 0, top + 12)
+    for (let j = 0; j < 10; j++) {
+      const bh = (row.counts[j] / max) * (rowH - 18)
+      ctx.fillStyle = '#66c0e0'
+      ctx.fillRect(5 + j * bw, bot - bh, bw - 2, bh)
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,.25)'
+    ctx.beginPath()
+    ctx.moveTo(5, bot)
+    ctx.lineTo(w - 5, bot)
+    ctx.stroke()
+  }
+}
 
 const params = new URLSearchParams(location.search)
 if (params.get('editor')) {
@@ -18,6 +47,10 @@ function bootGame() {
   const tl = document.getElementById('tl')
   const tr = document.getElementById('tr')
   const bl = document.getElementById('bl')
+  const townbar = document.getElementById('townbar')
+  const inspectEl = document.getElementById('inspect')
+  const histEl = document.getElementById('hist')
+  const histc = document.getElementById('histc') as HTMLCanvasElement
   const deadEl = document.getElementById('dead')
   const overlay = document.getElementById('lobby')
   const roomsEl = document.getElementById('rooms')
@@ -44,6 +77,13 @@ function bootGame() {
   const prev = new Map<string, { x: number; y: number }>()
   let snapAt = 0
   const cam: Cam = { x: MAP_SIZE / 2, y: MAP_SIZE / 2, zoom: 1 }
+  let town: TownHud = null
+  let inspect: NpcInspect = null
+  let hist: NeedHist[] = null
+  let debugOverlay: any = null
+  let showHist = false
+  let showDebug = false
+  let simSpeed = 1
 
   function slug(s: string) {
     return (s || '').trim().toLowerCase().replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'room'
@@ -61,6 +101,15 @@ function bootGame() {
   }
   const actmap = { KeyE: 'pickup', KeyG: 'drop', Space: 'attack', KeyF: 'enter' }
 
+  function sendSim(extra: { speed?: number; debug?: boolean; hist?: boolean } = {}) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(JSON.stringify({ type: 'sim', ...extra }))
+  }
+  function sendInspect(id: string | null) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(JSON.stringify({ type: 'inspect', targetId: id }))
+  }
+
   onkeydown = ev => {
     if (!playing() || (ev.target as HTMLElement).tagName === 'INPUT' || (ev.target as HTMLElement).tagName === 'SELECT') return
     if (keymap[ev.code] || actmap[ev.code]) ev.preventDefault()
@@ -72,6 +121,25 @@ function bootGame() {
         if (me && !me.dead) me.attackCd = 0.4
       }
     }
+    if (ev.code === 'KeyP') {
+      simSpeed = simSpeed > 0 ? 0 : 1
+      sendSim({ speed: simSpeed })
+    }
+    if (ev.code === 'Digit1') { simSpeed = 1; sendSim({ speed: 1 }) }
+    if (ev.code === 'Digit2') { simSpeed = 4; sendSim({ speed: 4 }) }
+    if (ev.code === 'Digit3') { simSpeed = 16; sendSim({ speed: 16 }) }
+    if (ev.code === 'Digit4') { simSpeed = 64; sendSim({ speed: 64 }) }
+    if (ev.code === 'F3') {
+      ev.preventDefault()
+      showHist = !showHist
+      histEl.className = showHist ? 'on' : ''
+      sendSim({ hist: showHist })
+    }
+    if (ev.code === 'F4') {
+      ev.preventDefault()
+      showDebug = !showDebug
+      sendSim({ debug: showDebug })
+    }
   }
   onkeyup = ev => {
     if (keymap[ev.code]) keys[keymap[ev.code]] = false
@@ -79,6 +147,20 @@ function bootGame() {
   onwheel = ev => {
     if (!playing()) return
     cam.zoom = Math.min(2.4, Math.max(0.35, cam.zoom * (ev.deltaY > 0 ? 0.9 : 1.1)))
+  }
+
+  canvas.onclick = ev => {
+    if (!playing()) return
+    const me = live.get(meId)
+    const hit = screenToWorld(cam, ev.clientX, ev.clientY, canvas, me ? (me.z || 0) : 0)
+    let best: Entity = null
+    let bestD = 1.6 * 1.6
+    for (const e of live.values()) {
+      if (e.kind !== 'npc') continue
+      const d = (e.x - hit.x) ** 2 + (e.y - hit.y) ** 2
+      if (d < bestD) { bestD = d; best = e }
+    }
+    sendInspect(best ? best.id : null)
   }
 
   function connect(room: string, playerName: string, map = '') {
@@ -137,6 +219,10 @@ function bootGame() {
           }
         }
         for (const id of [...live.keys()]) if (!seen.has(id)) live.delete(id)
+        town = msg.town || town
+        inspect = msg.inspect || null
+        if (msg.hist) hist = msg.hist
+        debugOverlay = msg.debug || null
       }
     }
     sock.onclose = () => {
@@ -235,7 +321,7 @@ function bootGame() {
     }
     const myZ = me ? (me.z || 0) : 0
     const vis = me ? visibleTiles(world, me.x, me.y, myZ) : null
-    render(ctx, world, cam, draw, meId, now, vis, me ? me.x : cam.x, me ? me.y : cam.y, null, myZ)
+    render(ctx, world, cam, draw, meId, now, vis, me ? me.x : cam.x, me ? me.y : cam.y, null, myZ, null, debugOverlay)
 
     if (me) {
       const inv = (me.inventory || []).map((it, i) => (i + 1) + '. ' + it.name).join('<br>')
@@ -251,6 +337,41 @@ function bootGame() {
       'room ' + lobby + '<br>' +
       'tick ' + tick + '  ents ' + live.size + '<br>' +
       others.map(p => (p.id === meId ? '>' : '') + p.name).join('<br>')
+    if (town) {
+      const sp = town.paused ? 'PAUSED' : (town.speed.toFixed(0) + 'x')
+      townbar.textContent = town.time + '  ' + sp +
+        '  $' + town.totalMoney.toFixed(0) +
+        '  town $' + town.townCash.toFixed(0) +
+        '  tax ' + (town.salesTax * 100).toFixed(0) + '%' +
+        '  npcs ' + town.npcCount +
+        '  gas ' + town.stocks.gas +
+        '  groc ' + town.stocks.grocerySnack + '/' + town.stocks.groceryUncooked +
+        '  books ' + town.stocks.books
+    }
+    if (inspect) {
+      inspectEl.className = 'on'
+      inspectEl.textContent =
+        inspect.name + '\n$' + inspect.money.toFixed(1) +
+        ' (save $' + inspect.savings.toFixed(1) + ') debt $' + inspect.debt.toFixed(1) +
+        '  TV: ' + (inspect.hasTv ? 'yes' : 'no') +
+        '\njob: ' + inspect.job + '   home: ' + inspect.home +
+        '\n' + inspect.traits +
+        '\naction: ' + inspect.action + '   carrying: ' + inspect.carrying +
+        '\n' + inspect.pantry + '\n' + inspect.book +
+        '\ntop: ' + inspect.top + '\n\n' + inspect.relations +
+        'Hunger      ' + inspect.needs.hunger.toFixed(0) +
+        '\nEnergy      ' + inspect.needs.energy.toFixed(0) +
+        '\nSocial      ' + inspect.needs.social.toFixed(0) +
+        '\nFun         ' + inspect.needs.fun.toFixed(0) +
+        '\nHygiene     ' + inspect.needs.hygiene.toFixed(0) +
+        '\nComfort     ' + inspect.needs.comfort.toFixed(0) +
+        '\nAspiration  ' + inspect.needs.aspiration.toFixed(0) +
+        '\nMeaning     ' + inspect.needs.meaning.toFixed(0) +
+        '\n\nMeals today: ' + inspect.mealsToday +
+        '\nHours worked: ' + inspect.hoursWorked.toFixed(1) +
+        '\n\n' + inspect.log.map(l => '• ' + l).join('\n')
+    } else inspectEl.className = ''
+    if (showHist && hist) drawHist(histc, hist)
 
     requestAnimationFrame(frame)
   }
