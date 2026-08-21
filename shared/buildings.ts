@@ -734,37 +734,44 @@ export function stampTown(world: World): SimSite[] {
   const quota = [...COMMERCIAL_QUOTA]
   let simHouses = 0
   const sites: SimSite[] = []
+  // Center-out so sim shops/houses land near player spawn (map center),
+  // not piled in the NW corner of the sim radius.
+  const blocks: { bx: number; by: number; d: number }[] = []
   for (let by = 0; by < n; by++) {
     for (let bx = 0; bx < n; bx++) {
-      const seed = hash(bx, by, world.seed)
-      const plots = plotsForBlock(bx, by, seed)
-      const inSim = Math.abs(bx - cx) <= SIM_BLOCK_RADIUS && Math.abs(by - cy) <= SIM_BLOCK_RADIUS
-      plots.forEach((p, i) => {
-        const ps = hash(seed, i, 99)
-        let kind: BuildingKind = 'house'
-        let sim = false
-        if (inSim) {
-          if (quota.length) {
-            kind = quota.shift()
-            sim = true
-          } else {
-            kind = 'house'
-            sim = simHouses < MAX_HOUSES
-            if (sim) simHouses++
-          }
-        } else if (ps % 14 === 0) {
-          kind = OUTSIDE_KINDS[ps % OUTSIDE_KINDS.length]
-        }
-        const site = stampPlot(world, p, ps, 0, kind)
-        if (!site) {
-          if (inSim && kind !== 'house') quota.unshift(kind)
-          if (inSim && kind === 'house' && sim) simHouses = Math.max(0, simHouses - 1)
-          return
-        }
-        site.sim = sim
-        sites.push(site)
-      })
+      blocks.push({ bx, by, d: Math.abs(bx - cx) + Math.abs(by - cy) })
     }
+  }
+  blocks.sort((a, b) => a.d - b.d || a.by - b.by || a.bx - b.bx)
+  for (const { bx, by } of blocks) {
+    const seed = hash(bx, by, world.seed)
+    const plots = plotsForBlock(bx, by, seed)
+    const inSim = Math.abs(bx - cx) <= SIM_BLOCK_RADIUS && Math.abs(by - cy) <= SIM_BLOCK_RADIUS
+    plots.forEach((p, i) => {
+      const ps = hash(seed, i, 99)
+      let kind: BuildingKind = 'house'
+      let sim = false
+      if (inSim) {
+        if (quota.length) {
+          kind = quota.shift()
+          sim = true
+        } else {
+          kind = 'house'
+          sim = simHouses < MAX_HOUSES
+          if (sim) simHouses++
+        }
+      } else if (ps % 14 === 0) {
+        kind = OUTSIDE_KINDS[ps % OUTSIDE_KINDS.length]
+      }
+      const site = stampPlot(world, p, ps, 0, kind)
+      if (!site) {
+        if (inSim && kind !== 'house') quota.unshift(kind)
+        if (inSim && kind === 'house' && sim) simHouses = Math.max(0, simHouses - 1)
+        return
+      }
+      site.sim = sim
+      sites.push(site)
+    })
   }
   resolveRoofCorners(world, 0)
   world.sites = sites
